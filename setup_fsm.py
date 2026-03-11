@@ -23,7 +23,7 @@ import voltage_helpers as helpers
 FCLK_PWM_PIN_1 = 4  # Must be a PWM-capable pin; config-pin to pwm if needed
 FCLK_PWM_PIN_2 = 5
 FCLK_HZ = 30_000
-FCLK_DUTY_PERCENT = 50.0
+FCLK_DUTY_PERCENT = 500000
 
 # delay
 DELAY_MS = 10
@@ -114,8 +114,8 @@ def fsm_begin() -> tuple:
         #PWM.start(FCLK_PWM_PIN_1, FCLK_DUTY_PERCENT, FCLK_HZ)
         #PWM.start(FCLK_PWM_PIN_2, FCLK_DUTY_PERCENT, FCLK_HZ)
         #TODO: pigpio add here. 
-        pi.hardware_clock(FCLK_PWM_PIN_1, FCLK_HZ)
-        pi.hardware_clock(FCLK_PWM_PIN_2, FCLK_HZ)
+        pi.hardware_PWM(FCLK_PWM_PIN_1, FCLK_HZ, FCLK_DUTY_PERCENT)
+        pi.hardware_PWM(FCLK_PWM_PIN_2, FCLK_HZ, FCLK_DUTY_PERCENT)
 
 
         # 6) Enable driver
