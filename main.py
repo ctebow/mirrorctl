@@ -19,9 +19,6 @@ SOFTWARE:
 it to 90VBIAS at beginning using slew.
 """
 
-from control_flows import set_to_vbias
-import voltage_helpers as helpers
-import setup
 from fsm_obj import FSM
 
 if __name__ == "__main__": 

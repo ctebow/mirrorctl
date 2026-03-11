@@ -13,16 +13,15 @@ Setup order:
 IS_LINUX = True
 try:
     import spidev
-    import gpiod
-    import Adafruit_BBIO.PWM as PWM
+    import pigpio
 except ImportError:
     IS_LINUX = False
 import time
 import voltage_helpers as helpers
 
 # filter clock pins
-FCLK_PWM_PIN_1 = "P9_14"  # Must be a PWM-capable pin; config-pin to pwm if needed
-FCLK_PWM_PIN_2 = "P9_16"
+FCLK_PWM_PIN_1 = 4  # Must be a PWM-capable pin; config-pin to pwm if needed
+FCLK_PWM_PIN_2 = 5
 FCLK_HZ = 30_000
 FCLK_DUTY_PERCENT = 50.0
 
@@ -42,8 +41,8 @@ SLEW_RATE_MS = 1 / 1000.0
 SLEW_AMOUNT_V = 0.25 # in units of volts
 
 # DAC to FSM enable
-DAC_ENABLE_CHIP = "gpiochip0"
-DAC_ENABLE_LINE = 26
+#DAC_ENABLE_CHIP = "gpiochip0"
+DAC_ENABLE_LINE = 6
 
 # DAC setup 
 DAC_RESET = 0x280001
@@ -78,10 +77,9 @@ def fsm_begin() -> tuple:
     if IS_LINUX:
         print("CREATING SPI")
         # Create enable line and write to low
-        chip = gpiod.Chip(DAC_ENABLE_CHIP)
-        enable = chip.get_line(DAC_ENABLE_LINE)
-        enable.request(consumer="myapp", type=gpiod.LINE_REQ_DIR_OUT)
-        enable.set_value(0)
+        pi = pigpio.pi()
+        pi.set_mode(DAC_ENABLE_LINE, pigpio.OUTPUT)
+        pi.write(DAC_ENABLE_LINE, 0)
 
         # begin SPI connection
         spi = spidev.SpiDev()
@@ -113,17 +111,21 @@ def fsm_begin() -> tuple:
     time.sleep(DELAY_S)
     if IS_LINUX:
         # Set Filter clock: 30 kHz, 50% duty --> Two of these jawns
-        PWM.start(FCLK_PWM_PIN_1, FCLK_DUTY_PERCENT, FCLK_HZ)
-        PWM.start(FCLK_PWM_PIN_2, FCLK_DUTY_PERCENT, FCLK_HZ)
+        #PWM.start(FCLK_PWM_PIN_1, FCLK_DUTY_PERCENT, FCLK_HZ)
+        #PWM.start(FCLK_PWM_PIN_2, FCLK_DUTY_PERCENT, FCLK_HZ)
+        #TODO: pigpio add here. 
+        pi.hardware_clock(FCLK_PWM_PIN_1, FCLK_HZ)
+        pi.hardware_clock(FCLK_PWM_PIN_2, FCLK_HZ)
+
 
         # 6) Enable driver
-        enable.set_value(1)
+        pi.write(DAC_ENABLE_LINE, 1)
         time.sleep(DELAY_S)
 
-        return spi, enable
+        return spi, pi
     return None, None
 
-def fsm_close(start_state, slew_params, spi, line):
+def fsm_close(start_state, slew_params, spi, pi):
     
 
     # slew to zero vdiff (all channels at VBIAS)
@@ -146,8 +148,8 @@ def fsm_close(start_state, slew_params, spi, line):
     time.sleep(DELAY_S)
 
     if IS_LINUX:
-        # disable dack
-        line.set_value(0)
+        # disable dac
+        pi.write(DAC_ENABLE_LINE, 0)
         time.sleep(DELAY_S)
 
         #close spi connection
