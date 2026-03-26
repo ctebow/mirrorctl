@@ -1,8 +1,8 @@
 # filter clock pins
-FCLK_PWM_PIN_1 = 4  # Must be a PWM-capable pin; config-pin to pwm if needed
-FCLK_PWM_PIN_2 = 5
+FCLK_PWM_PIN_1 = 12  # Must be a PWM-capable pin; config-pin to pwm if needed
+FCLK_PWM_PIN_2 = 13
 FCLK_HZ = 30_000
-FCLK_DUTY_PERCENT = 50
+FCLK_DUTY_PERCENT = 500000
 
 # delay
 DELAY_MS = 10
