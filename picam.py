@@ -23,7 +23,10 @@ def init_camera(resolution=(640, 480)):
 def get_gray_frame(picam2):
     frame = picam2.capture_array()
     # Y channel = grayscale (fast, no conversion)
-    gray = frame[:, :, 0]
+    if frame.ndim == 3:
+        gray = frame[:, :, 0]
+    else:
+        gray = frame
     return gray
 
 
