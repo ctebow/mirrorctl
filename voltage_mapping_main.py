@@ -118,9 +118,13 @@ def cmd(num_frames, settling_time, axis, outfile, step_size, start, end, resolut
             curr_vdiff = start
             try:
                 while curr_vdiff < end:
-                    match axis:
-                        case "x": fsm.set_vdiff(curr_vdiff, 0); break
-                        case "y": fsm.set_vdiff(0, curr_vdiff); break
+
+                    if axis == "x":
+                        fsm.set_vdiff(curr_vdiff, 0)
+                    elif axis == "y":
+                        fsm.set_vdiff(0, curr_vdiff)
+                    else:
+                        break
 
                     centroid = get_frames(cam, num_frames, roi)
                     vdiff_x, vdiff_y = fsm.get_voltages()
