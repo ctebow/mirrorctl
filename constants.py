@@ -16,7 +16,7 @@ V_MAX_CHANNEL= VBIAS + VDIFF_MAX_VOLTS / 2
 V_MAX_DIGITAL = (V_MAX_CHANNEL / 200) * 65535.0
 
 
-SLEW_RATE_MS = 1 / 5000.0
+SLEW_RATE_MS = 1 / 10000.0 #take off one zero for slower
 SLEW_AMOUNT_V = 0.25 # in units of volts
 
 # DAC to FSM enable
