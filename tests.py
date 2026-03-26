@@ -5,7 +5,7 @@ Constraints: vdiff in [V_MIN_VOLTS, V_MAX_VOLTS]; channel voltages derived from 
 import pytest
 from unittest.mock import patch
 import voltage_helpers as vh
-from setup_fsm import VBIAS, VDIFF_MAX_VOLTS, VDIFF_MIN_VOLTS, V_MAX_DIGITAL, SLEW_AMOUNT_V, SLEW_RATE_MS
+from constants import VBIAS, VDIFF_MAX_VOLTS, VDIFF_MIN_VOLTS, V_MAX_DIGITAL, SLEW_AMOUNT_V, SLEW_RATE_MS
 
 SLEW = (SLEW_RATE_MS, SLEW_AMOUNT_V)
 

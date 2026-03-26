@@ -2,13 +2,11 @@
 FSM class for python testing dev.
 """
 
-import math
-import time
-import threading
 import setup_fsm
+import constants
 import voltage_helpers as helpers
 
-V_MAX = setup_fsm.VDIFF_MAX_VOLTS  # 180
+V_MAX = constants.VDIFF_MAX_VOLTS  # 180
 
 
 class FSM():

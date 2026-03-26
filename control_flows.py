@@ -10,7 +10,7 @@ ALL CONTROL FLOW FUNCTIONS SHOULD RETURN FINAL CHANNEL VALUES IN TUPLE
 
 import time
 import voltage_helpers as helpers
-from setup_fsm import VDIFF_MAX_VOLTS, VDIFF_MIN_VOLTS, VBIAS, DELAY_S
+from constants import VDIFF_MAX_VOLTS, VDIFF_MIN_VOLTS, VBIAS, DELAY_S
 
 def angle_to_angle(x: float, y: float) -> None:
     raise NotImplementedError
