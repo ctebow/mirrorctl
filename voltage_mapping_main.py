@@ -43,7 +43,7 @@ def write_to_outfile(outfile, coords, mode):
 
 @click.command()
 @click.option('-n', '--num_frames', default=5, type=int, help="Number of frames to capture per step")
-@click.option('-t', '--settling_time', default=0.01, type=float, help="Settling time in between voltage steps in seconds")
+@click.option('-t', '--settling_time', default=0.1, type=float, help="Settling time in between voltage steps in seconds")
 @click.option('-a', '--axis', default="x", type=str, help="Axis to sweep. <x> for x-axis, <y> for y-axis <b> for both")
 @click.option('-o', '--outfile', default="voltage_mapping_out.csv", type=str, help="CSV outfile name")
 @click.option('-s', '--step-size', default=1, type=float, help="VDIFF step size between frames in V")
