@@ -1,16 +1,16 @@
 # filter clock pins
 FCLK_PWM_PIN_1 = 12  # Must be a PWM-capable pin; config-pin to pwm if needed
 FCLK_PWM_PIN_2 = 13
-FCLK_HZ = 8_400 # should be 60 * 6th order bessel LPF cutoff (140HZ for 5mm diamter mirror, I think 100 for 6.2mm)
+FCLK_HZ = 8_400 # should be 60 * 6th order bessel LPF cutoff (140HZ for 5mm diamter mirror, I think 100 for 6.4mm)
 FCLK_DUTY_PERCENT = 500000
 
 # delay
 DELAY_MS = 10
 DELAY_S = DELAY_MS / 1000.0
 
-# voltages
-VBIAS = 90.0  # Volts; 0 < VBIAS <= 200 FOR 90V VBIAS MAX VDIFF IS 180V
-VDIFF_MAX_VOLTS = 175 # Driver can do max 200V, current mirror is 180V
+# voltages --> BEST PRACTICE TO KEEP VBIAS BELOW 170
+VBIAS = 90.0  # Volts; 0 < VBIAS <= 200 FOR 90V VBIAS MAX VDIFF IS 170V
+VDIFF_MAX_VOLTS = 175 # Driver can do max 200V, current mirror is 170V
 VDIFF_MIN_VOLTS = -175
 V_MAX_CHANNEL= VBIAS + VDIFF_MAX_VOLTS / 2
 V_MAX_DIGITAL = (V_MAX_CHANNEL / 200) * 65535.0
@@ -20,8 +20,9 @@ SLEW_RATE_MS = 1 / 10000.0 #take off one zero for slower
 SLEW_AMOUNT_V = 0.25 # in units of volts
 
 # DAC to FSM enable
-#DAC_ENABLE_CHIP = "gpiochip0"
-DAC_ENABLE_LINE = 6
+#DAC_ENABLE_CHIP = "gpiochip0" (for bb not pi) 
+# the enable line CAN MISBEHAVE if you use wrong gpio pin, this would be very bad if connected to mirror
+DAC_ENABLE_LINE = 16  #used to b 6, but we need this pin to be default low (rpi gpio pins 9+)
 
 # DAC setup 
 DAC_RESET = 0x280001

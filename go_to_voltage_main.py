@@ -1,17 +1,11 @@
 #!/usr/bin/env python3
 """
-Mirrorcle MEMS Digital Driver — BeagleBone Python port.
+Mirrorcle MEMS Digital Driver — Raspberry Pi + Python control script.
 
 TRIPLE CHECK BEFORE RUNNING WITH ACTUAL MEMS MIRROR.
 VDIFF (Channel 0 - Channel 1 or Channel 2 - Channel 3) MUST NOT EXCEED 2 * VBIAS
 (e.g. 180 V for VBIAS=90). Exceeding this can permanently damage the mirror.
 Do not use with the mirror before checking with Graydon, Sofi, or Caden.
-
-Wiring (BeagleBone):
-- DAC SYNC: P9_17 (SPI0 CS0) if CS_PIN is None; else wire to CS_PIN.
-- DAC MOSI/SCLK: P9_18 (DI), P9_22 (SCLK) for SPI0.
-- DRIVER_ENABLE: configurable (e.g. P8_14).
-- FCLK: configurable PWM (e.g. P9_14); run `config-pin P9_14 pwm` if needed.
 
 
 SOFTWARE:

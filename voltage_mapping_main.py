@@ -41,6 +41,7 @@ def write_to_outfile(outfile, coords, mode):
         writer.writerow(["vdiffx", "vdiffy", "cx", "cy"])
         writer.writerows(coords)
 
+# click is just an easy library for handling CLI interface --> configure parameters using cmd line
 @click.command()
 @click.option('-n', '--num_frames', default=5, type=int, help="Number of frames to capture per step")
 @click.option('-t', '--settling_time', default=0.1, type=float, help="Settling time in between voltage steps in seconds")
