@@ -1,7 +1,7 @@
 status: ok
 calibration: /home/ctebow/pulse-a/fsm/config/camera_params.npz
 frames_averaged: 10
-undistorted_centroid_px: 618.7583 285.2560
-distance_from_image_center_px: 302.7361  (image_center_px: 319.5000 239.5000)
-cx_ud_px: 618.758316
-cy_ud_px: 285.256003
+undistorted_centroid_px: 564.5433 275.5162
+distance_from_image_center_px: 247.6759  (image_center_px: 319.5000 239.5000)
+cx_ud_px: 564.543262
+cy_ud_px: 275.516152
