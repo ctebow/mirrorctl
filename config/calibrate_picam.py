@@ -21,10 +21,10 @@ CALIB_IMAGES_DIR = _CONFIG_DIR / "calib_images"
 OUTPUT_NPZ = _CONFIG_DIR / "camera_params.npz"
 
 # Defaults: common small board — OVERRIDE via CLI to match your printed target exactly.
-SQUARES_X = 20
-SQUARES_Y = 26
+SQUARES_X = 6
+SQUARES_Y = 8
 SQUARE_LENGTH = 0.03
-MARKER_LENGTH = 0.02
+MARKER_LENGTH = 0.023
 DICT_TYPE = aruco.DICT_4X4_50
 
 MIN_CALIB_IMAGES = 3
