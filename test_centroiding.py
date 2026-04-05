@@ -3,7 +3,7 @@
 One-shot (or multi-frame averaged) laser centroid check: capture with Picamera2,
 apply the same undistort (+ optional homography) path as voltage mapping,
 write metrics to a text file, and save an undistorted grayscale snapshot with
-the centroid marked.
+the pipeline centroid marked and the top distinct bright peaks circled.
 """
 from __future__ import annotations
 
@@ -19,6 +19,36 @@ import numpy as np
 from src import centroiding, picam
 
 _DEFAULT_CAL = Path(__file__).resolve().parent / "config" / "camera_params.npz"
+
+# BGR, rank 1 .. 5 — distinct on typical gray/laser imagery
+_PEAK_COLORS = (
+    (0, 255, 0),
+    (255, 255, 0),
+    (255, 0, 255),
+    (0, 255, 255),
+    (0, 165, 255),
+)
+
+
+def _top_bright_spots(
+    gray: np.ndarray,
+    count: int,
+    suppress_radius: int,
+) -> list[tuple[int, int, float]]:
+    """
+    Repeated global max with circular suppression so each spot is a separate peak.
+    Each entry is (x, y, max_value_in_masked_region) with x=columns, y=rows.
+    """
+    work = gray.astype(np.float32, copy=True)
+    spots: list[tuple[int, int, float]] = []
+    for _ in range(count):
+        _, max_val, _, max_loc = cv2.minMaxLoc(work)
+        if max_val <= 0:
+            break
+        x, y = int(max_loc[0]), int(max_loc[1])
+        spots.append((x, y, float(max_val)))
+        cv2.circle(work, (x, y), suppress_radius, 0.0, thickness=-1)
+    return spots
 
 
 def _average_centroids(cam, calib: centroiding.CameraCalibration, num_frames: int, roi: int):
@@ -69,7 +99,7 @@ def _average_centroids(cam, calib: centroiding.CameraCalibration, num_frames: in
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Capture one run, compute laser centroid with camera_params.npz, "
-        "write text metrics and an annotated undistorted image.",
+        "write text metrics and an annotated undistorted image (centroid + top bright spots).",
     )
     parser.add_argument(
         "--calibration",
@@ -100,13 +130,26 @@ def main(argv: list[str] | None = None) -> int:
         "--image-out",
         type=Path,
         default=Path("test_centroid_annotated.jpg"),
-        help="Undistorted snapshot with centroid circle (default: %(default)s).",
+        help="Undistorted snapshot with annotations (default: %(default)s).",
     )
     parser.add_argument(
         "--circle-radius",
         type=int,
         default=12,
-        help="Circle radius in pixels on the annotated image (default: %(default)s).",
+        help="Circle radius in pixels for each bright-spot highlight (default: %(default)s).",
+    )
+    parser.add_argument(
+        "--top-spots",
+        type=int,
+        default=5,
+        help="Number of brightest distinct peaks to circle (default: %(default)s).",
+    )
+    parser.add_argument(
+        "--peak-separation",
+        type=int,
+        default=None,
+        metavar="PX",
+        help="Suppression radius between peaks (default: max(roi//2, 2*circle-radius)).",
     )
     args = parser.parse_args(argv)
 
@@ -158,13 +201,44 @@ def main(argv: list[str] | None = None) -> int:
             f"(sqrt(x_mm^2 + y_mm^2); origin is board frame (0,0))"
         )
 
+    sep = args.peak_separation
+    if sep is None:
+        sep = max(args.roi // 2, 2 * args.circle_radius)
+    spots = _top_bright_spots(last_rect, max(0, args.top_spots), sep)
+    lines.append(f"top_bright_spots: count={len(spots)} suppression_radius_px={sep}")
+    lines.append("rank  x_px  y_px  raw_max_in_peak_region")
+    for i, (sx, sy, sv) in enumerate(spots, start=1):
+        lines.append(f"{i}  {sx}  {sy}  {sv:.2f}")
+
     args.text_out.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     vis = cv2.cvtColor(last_rect, cv2.COLOR_GRAY2BGR)
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    for i, (sx, sy, _) in enumerate(spots):
+        col = _PEAK_COLORS[i % len(_PEAK_COLORS)]
+        cv2.circle(vis, (sx, sy), args.circle_radius, col, 2, lineType=cv2.LINE_AA)
+        cv2.putText(
+            vis,
+            str(i + 1),
+            (sx + args.circle_radius + 2, sy + 4),
+            font,
+            0.5,
+            col,
+            1,
+            lineType=cv2.LINE_AA,
+        )
     cx_i = int(round(mcxi))
     cy_i = int(round(mcyi))
-    cv2.circle(vis, (cx_i, cy_i), args.circle_radius, (0, 255, 0), 2, lineType=cv2.LINE_AA)
-    cv2.drawMarker(vis, (cx_i, cy_i), (0, 255, 0), markerType=cv2.MARKER_CROSS, markerSize=14, thickness=2)
+    cv2.circle(vis, (cx_i, cy_i), args.circle_radius + 2, (255, 255, 255), 2, lineType=cv2.LINE_AA)
+    cv2.drawMarker(
+        vis,
+        (cx_i, cy_i),
+        (255, 255, 255),
+        markerType=cv2.MARKER_CROSS,
+        markerSize=16,
+        thickness=2,
+        line_type=cv2.LINE_AA,
+    )
     cv2.imwrite(str(args.image_out), vis)
 
     print("Wrote", args.text_out, "and", args.image_out)
