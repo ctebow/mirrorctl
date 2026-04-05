@@ -3,8 +3,8 @@ FSM class for python testing dev.
 """
 
 from . import setup_fsm
-import constants
-import voltage_helpers as helpers
+from . import constants
+from . import voltage_helpers as helpers
 
 V_MAX = constants.VDIFF_MAX_VOLTS  # 180
 
