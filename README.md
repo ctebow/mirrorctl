@@ -1,4 +1,5 @@
 # Mirrorcle MEMS driver — Python API (`rasppi_src`)
+## (README made with cursor)
 
 This folder contains a **Python control layer** for a Mirrorcle-style MEMS mirror driven by a **quad DAC over SPI**, with **driver enable** and **filter clock (FCLK) PWM** on a Linux SBC (typically **Raspberry Pi**). The main object you use in application code is **`FSM`** in `fsm_obj.py`.
 
