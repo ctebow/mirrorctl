@@ -104,7 +104,7 @@ sequenceDiagram
 | `voltage_helpers.py` | `vdiff_to_channel_voltage`, `slew` / `slew_x` / `slew_y`, `channel_voltage_to_digital`, `write_dac_channel`, `send_dac_command`. Use this layer if you build custom trajectories while still using the same DAC encoding. |
 | `control_flows.py` | Legacy / helper patterns (not fully wired for all paths). |
 | `voltage_mapping_main.py` | **Click** CLI for camera-centric mapping sweeps (`src.picam`, `src.centroiding`). |
-| `src/picam.py` | Picamera2 init, YUV grayscale frames, **`close_camera`** cleanup; shared with `config/get_calib_photos.py`. |
+| `src/picam.py` | Picamera2 init (**RGB888** main → OpenCV **RGB2GRAY**), **`close_camera`**; shared with `config/get_calib_photos.py`. |
 
 ---
 
@@ -135,7 +135,7 @@ Interactive scripts in this repo (e.g. `go_to_voltage_main.py`) echo that **VDIF
 
 ## Camera calibration (Picamera2 + OpenCV)
 
-Calibration capture and voltage mapping share **`src/picam.py`**: YUV420 video at a fixed **(width, height)** (default **640×480** via `DEFAULT_FRAME_SIZE`). This avoids the old mismatch between OpenCV `VideoCapture` and Picamera2.
+Calibration capture and voltage mapping share **`src/picam.py`**: **RGB888** main stream at a fixed **(width, height)** (`DEFAULT_FRAME_SIZE` in `src/picam.py`). Grayscale for centroids and JPEGs uses **`cv2.cvtColor(..., RGB2GRAY)`**, so previews and saved calibration images are not affected by YUV planar buffer layout.
 
 **Workflow**
 

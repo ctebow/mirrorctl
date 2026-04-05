@@ -9,7 +9,7 @@ On Pi:
 On Mac browser:
   http://<pi-ip>:8080/
 
-Stop with Ctrl+C on the Pi. Same Picamera2 config as mapping (YUV → BGR JPEG).
+Stop with Ctrl+C on the Pi. Same Picamera2 config as mapping (RGB888 → gray → BGR JPEG).
 """
 from __future__ import annotations
 
