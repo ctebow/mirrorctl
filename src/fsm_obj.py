@@ -2,7 +2,7 @@
 FSM class for python testing dev.
 """
 
-import setup_fsm
+from . import setup_fsm
 import constants
 import voltage_helpers as helpers
 
