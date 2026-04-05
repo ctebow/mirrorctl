@@ -8,17 +8,33 @@ Run these steps on the **Raspberry Pi** (Picamera2 + OpenCV). Commands assume yo
 
 - Python environment with **`picamera2`**, **`opencv-python`** (or system OpenCV), **`numpy`**, **`click`**.
 - ChArUco board that matches **`config/calibrate_picam.py`** (`SQUARES_X`, `SQUARES_Y`, `SQUARE_LENGTH`, `MARKER_LENGTH`, dictionary).
-- **Resolution:** Capture, calibration stills, and mapping must use the **same frame size**. Default is **640×480** (`src/picam.DEFAULT_FRAME_SIZE` and `FRAME_SIZE` in `config/get_calib_photos.py`). If you change width, pass the same value to mapping as `--resolution`.
+- **Resolution:** Capture, calibration stills, and mapping must use the **same frame size**. Default is **640×480** (`src/picam.DEFAULT_FRAME_SIZE`). Pass **`--width`** to capture/preview scripts or **`--resolution`** to mapping.
 
 ---
 
-## 2. Capture calibration images (Picamera2)
+## 2. Live preview (headless Pi → Mac browser)
 
-Saves JPEGs under `config/calib_images/`. In the preview window: **SPACE** = save frame, **ESC** = quit.
+No saving — use this to aim and focus. On the Pi:
 
 ```bash
 cd /path/to/rasppi_src
-python3 config/get_calib_photos.py
+python3 config/preview_stream.py --bind 0.0.0.0 --port 8080
+```
+
+On your Mac (same LAN): open **`http://<pi-ip>:8080/`** in a browser. Stop with **Ctrl+C** on the Pi.
+
+Optional: `--width 640`, `--fps 24`, `--quality 75`.
+
+---
+
+## 3. Capture calibration images (Picamera2, CLI)
+
+Saves JPEGs under `config/calib_images/`. **No GUI** — type commands on the Pi terminal (`s` = save, `q` = quit). Over SSH, use unbuffered Python if keys lag:
+
+```bash
+cd /path/to/rasppi_src
+python3 -u config/get_calib_photos.py
+# optional:  python3 -u config/get_calib_photos.py --width 640
 ```
 
 Tips:
@@ -28,7 +44,7 @@ Tips:
 
 ---
 
-## 3. Lens calibration (ChArUco → `camera_params.npz`)
+## 4. Lens calibration (ChArUco → `camera_params.npz`)
 
 Reads `config/calib_images/*.jpg` and writes **`config/camera_params.npz`** with `mtx`, `dist`, and `rms`. Fails if detections are weak or RMS is too high (see `MAX_RMS_PIXELS` in the script).
 
@@ -39,7 +55,7 @@ python3 config/calibrate_picam.py
 
 ---
 
-## 4. Homography (optional — mm coordinates in CSV)
+## 5. Homography (optional — mm coordinates in CSV)
 
 Homography **`H`** maps undistorted **pixels** to the **ChArUco board plane (meters/mm as defined by your square length in `calibrate_picam.py`)**. Use a single image where the **full board is clearly visible** and the board is in the **same physical relationship** to the camera you care about for mapping.
 
@@ -63,7 +79,7 @@ python3 config/calibrate_picam.py --update-homography /path/to/board_visible.jpg
 
 ---
 
-## 5. Voltage mapping (uses calibration by default)
+## 6. Voltage mapping (uses calibration by default)
 
 `voltage_mapping_main.py` loads **`config/camera_params.npz`** automatically, applies **undistortion**, then optionally **mm** via **`H`** if present.
 
@@ -94,7 +110,7 @@ python3 voltage_mapping_main.py --mode test-cam
 
 ---
 
-## 6. CSV output columns
+## 7. CSV output columns
 
 The first two columns are always **`vdiffx`**, **`vdiffy`**. The centroid columns depend on calibration:
 
@@ -106,7 +122,7 @@ The first two columns are always **`vdiffx`**, **`vdiffy`**. The centroid column
 
 ---
 
-## 7. When to redo which step
+## 8. When to redo which step
 
 | Change | Redo capture | Redo `calibrate_picam.py` (lens) | Redo **`H`** |
 |--------|----------------|----------------------------------|--------------|
@@ -117,10 +133,11 @@ The first two columns are always **`vdiffx`**, **`vdiffy`**. The centroid column
 
 ---
 
-## 8. File locations
+## 9. File locations
 
 | File / directory | Role |
 |------------------|------|
+| `config/preview_stream.py` | MJPEG server for live browser preview |
 | `config/calib_images/` | JPEGs from `get_calib_photos.py` |
 | `config/camera_params.npz` | `mtx`, `dist`, `rms`, optional `H` |
 | `voltage_mapping_out.csv` (or `-o`) | Mapping output |
