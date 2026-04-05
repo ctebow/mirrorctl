@@ -8,7 +8,7 @@ Run these steps on the **Raspberry Pi** (Picamera2 + OpenCV). Commands assume yo
 
 - Python environment with **`picamera2`**, **`opencv-python`** (or system OpenCV), **`numpy`**, **`click`**.
 - ChArUco board that matches **`config/calibrate_picam.py`** (`SQUARES_X`, `SQUARES_Y`, `SQUARE_LENGTH`, `MARKER_LENGTH`, dictionary).
-- **Resolution:** Capture, calibration stills, and mapping must use the **same frame size**. Default is **640×480** (`src/picam.DEFAULT_FRAME_SIZE`). Pass **`--width`** to capture/preview scripts or **`--resolution`** to mapping.
+- **Resolution:** Capture, calibration stills, and mapping must use the **same frame size**. Match `src/picam.DEFAULT_FRAME_SIZE` and pass **`--width`** to capture/preview scripts or **`--resolution`** to mapping (height follows `picam` rules for a given width unless you use a full `(w, h)` tuple).
 
 ---
 
@@ -41,12 +41,13 @@ Tips:
 
 - Use **10–20** images with the board at different angles and distances.
 - Keep lighting and focus representative of mapping runs.
+- Each **`s` / `save`** writes a normal **`.jpg`** you can copy off the Pi and open in any image viewer. (`preview_stream.py` does **not** save files; it is preview only.)
 
 ---
 
 ## 4. Lens calibration (ChArUco → `camera_params.npz`)
 
-Reads `config/calib_images/*.jpg` and writes **`config/camera_params.npz`** with `mtx`, `dist`, and `rms`. Fails if detections are weak or RMS is too high (see `MAX_RMS_PIXELS` in the script).
+Reads `config/calib_images/*.jpg` and writes **`config/camera_params.npz`** with **`mtx`**, **`dist`**, and **`rms`**. By default this step does **not** compute homography **`H`** — you get **undistorted pixel** coordinates in the mapping CSV until you add **`H`** (see §5). Fails if detections are weak or RMS is too high (see `MAX_RMS_PIXELS` in the script).
 
 ```bash
 cd /path/to/rasppi_src
@@ -55,9 +56,27 @@ python3 config/calibrate_picam.py
 
 ---
 
+## 4a. What actually feeds centroiding / voltage mapping
+
+This is **not** automatic from capture alone:
+
+| Artifact | Used when mapping runs? |
+|----------|-------------------------|
+| `config/calib_images/*.jpg` | **No** — offline input for `calibrate_picam.py` only. |
+| `config/camera_params.npz` | **Yes** (default) — `voltage_mapping_main.py` loads **`mtx` / `dist` / optional `H`** from this file. |
+
+- After you capture **new** JPEGs, you must **run `calibrate_picam.py` again** (or use **`--update-homography`** if you only change **`H`**) so **`camera_params.npz`** matches. Mapping does **not** re-read the JPEG folder at runtime.
+- If **`npz` is missing** and you did not pass **`--no-calib`**, mapping will stop and tell you to run calibration first.
+
+---
+
 ## 5. Homography (optional — mm coordinates in CSV)
 
-Homography **`H`** maps undistorted **pixels** to the **ChArUco board plane (meters/mm as defined by your square length in `calibrate_picam.py`)**. Use a single image where the **full board is clearly visible** and the board is in the **same physical relationship** to the camera you care about for mapping.
+**Homography is optional.** If you skip this section entirely, mapping still applies **lens undistortion** using **`mtx` / `dist`** and writes **`cx_ud_px`**, **`cy_ud_py`** (undistorted pixels). You only need **`H`** if you want **board-plane millimetres** in the CSV (**`x_mm`**, **`y_mm`**).
+
+**`H` is not a separate parameter file.** It is stored in the same `config/camera_params.npz` as `mtx` and `dist`, alongside optional `rms`. You add it by passing **one** reference image (board clearly visible) on the command line — there is no extra standalone homography config.
+
+Homography **`H`** maps undistorted **pixels** to the **ChArUco board plane** (units follow your **`SQUARE_LENGTH`** etc. in `calibrate_picam.py`). Use an image where the **full board is clearly visible** and the board is in the **same physical relationship** to the camera you care about during laser mapping.
 
 ### Option A — lens cal + homography in one run
 
@@ -138,6 +157,6 @@ The first two columns are always **`vdiffx`**, **`vdiffy`**. The centroid column
 | File / directory | Role |
 |------------------|------|
 | `config/preview_stream.py` | MJPEG server for live browser preview |
-| `config/calib_images/` | JPEGs from `get_calib_photos.py` |
-| `config/camera_params.npz` | `mtx`, `dist`, `rms`, optional `H` |
+| `config/calib_images/` | Viewable JPEGs from `get_calib_photos.py` — input to `calibrate_picam.py` only; **not** read by mapping at runtime. |
+| `config/camera_params.npz` | Output of `calibrate_picam.py`: `mtx`, `dist`, `rms`, optional `H` — **this** is what `voltage_mapping_main.py` loads (unless `--no-calib`). |
 | `voltage_mapping_out.csv` (or `-o`) | Mapping output |
