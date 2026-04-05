@@ -25,9 +25,14 @@ def get_frames(cam, num_frames, roi) -> tuple:
         gray = picam.get_gray_frame(cam)
         time.sleep(0.05)
         res = centroiding.find_laser_centroid(gray, roi)
+        if res is None:
+            continue
         cx.append(res[0])
         cy.append(res[1])
-    
+
+    if not cx:
+        return (float("nan"), float("nan"))
+
     return ((sum(cx)/len(cx)), (sum(cy)/len(cy)))
 
 def write_to_outfile(outfile, coords, mode):
@@ -48,7 +53,7 @@ def write_to_outfile(outfile, coords, mode):
 @click.option('-s', '--step-size', default=1, type=float, help="VDIFF step size between frames in V")
 @click.option('--start', default=0, type=float, help="Start voltage in V")
 @click.option('--end', default=175, type=float, help="End voltage in V")
-@click.option('--resolution', default=640, help='Square resolution (e.g. 640 -> 640x480)')
+@click.option('--resolution', default=640, type=int, help='Frame width in pixels (height is 480; match config/calibration)')
 @click.option('--roi', default=50, type=int, help="Size in pixels of roi around centroid")
 @click.option('--mode', default="man", type=str, help="Set mode <auto> for a fast sweep <man> for stepping")
 @click.option('--image_outfile', default=None, type=str, help="If set, writes grayscale image to outfile")
@@ -57,29 +62,33 @@ def cmd(num_frames, settling_time, axis, outfile, step_size, start, end, resolut
     cmd function for click to enable easy CLI
     """
 
-    # get FSM object, picamera
     fsm = FSM()
+    cam = None
     try:
-        cam = picam.init_camera()
-    except:
-        input("Cam not connected. FSM is not active. Press any key to shutdown and end")
-        return
-    
-    if mode == "test-cam":
-        print("Taking picture with picam to test dat jit")
-        gray = picam.get_gray_frame(cam)
-        centroiding.grayscale_to_outfile(gray, "gray1.jpg")
-        return
-    # fsm now live
-    active = fsm.begin()
-    # reset outfile
-    with open(outfile, "w", newline="") as f:
-        pass
-    coords = []
+        try:
+            cam = picam.init_camera(resolution)
+        except Exception as exc:
+            print(f"Camera failed: {exc}")
+            input("Cam not connected. Press any key to shutdown and end.")
+            return
 
-    if mode == "man":
-        print(f'[MAN] FSM is active at {fsm.vdiff_x} Vdiff-x | {fsm.vdiff_y} Vdiff-y')
-        if active != 1:
+        if mode == "test-cam":
+            print("Taking picture with picam to test dat jit")
+            gray = picam.get_gray_frame(cam)
+            centroiding.grayscale_to_outfile(gray, "gray1.jpg")
+            return
+
+        active = fsm.begin()
+        with open(outfile, "w", newline="") as f:
+            pass
+        coords = []
+
+        if mode == "man":
+            print(f'[MAN] FSM is active at {fsm.vdiff_x} Vdiff-x | {fsm.vdiff_y} Vdiff-y')
+            if active == -1:
+                print("FSM failed to start up, shutting down")
+                fsm.close()
+                return
             try:
                 while True:  # main loop
                     usr = input("Input vdiffx, vdiffy (x y): ")
@@ -91,7 +100,7 @@ def cmd(num_frames, settling_time, axis, outfile, step_size, start, end, resolut
                     if x and y:
                         print(f'setting vdiff: x: {x}, y: {y}')
                         fsm.set_vdiff(float(x), float(y))
-                        
+
                         centroid = get_frames(cam, num_frames, roi)
                         vdiff_x, vdiff_y = fsm.get_voltages()
                         coords.append([vdiff_x, vdiff_y, centroid[0], centroid[1]])
@@ -102,28 +111,29 @@ def cmd(num_frames, settling_time, axis, outfile, step_size, start, end, resolut
 
             except KeyboardInterrupt:
                 print("Keyboard interrupt received — shutting down")
-            except:
+            except Exception:
                 print("Other error occurred, shutting down.")
             finally:
                 fsm.close()
                 write_to_outfile(outfile, coords, "a")
-                return
-        else:
-            print("FSM failed to start up, shutting down")
-            fsm.close()
             return
 
-    elif mode == "auto":
-        if active != 1:
+        elif mode == "auto":
+            if active == -1:
+                print("FSM failed to start up, shutting down")
+                fsm.close()
+                return
 
             print(f'[AUTO] FSM is active at {fsm.vdiff_x} Vdiff-x | {fsm.vdiff_y} Vdiff-y')
 
             if VDIFF_MIN_VOLTS > start or start > VDIFF_MAX_VOLTS:
                 print("[AUTO] Start val not in vdiff allowed range")
                 fsm.close()
+                return
             if VDIFF_MIN_VOLTS > end or end > VDIFF_MAX_VOLTS:
                 print("[AUTO] End val not in vdiff allowed range")
                 fsm.close()
+                return
 
             curr_vdiff = start
             try:
@@ -139,27 +149,28 @@ def cmd(num_frames, settling_time, axis, outfile, step_size, start, end, resolut
                     centroid = get_frames(cam, num_frames, roi)
                     vdiff_x, vdiff_y = fsm.get_voltages()
                     coords.append([vdiff_x, vdiff_y, centroid[0], centroid[1]])
-                    
+
                     time.sleep(settling_time)
 
                     curr_vdiff += step_size
 
             except KeyboardInterrupt:
                 print("Keyboard interrupt received — shutting down")
-            except:
+            except Exception:
                 print("Other error occurred, shutting down.")
             finally:
                 fsm.close()
                 write_to_outfile(outfile, coords, "w")
-                return
+            return
 
-    else:
-        print("Invalid mode, shutting down")
-        fsm.close()
-        return
+        else:
+            print("Invalid mode, shutting down")
+            fsm.close()
+            return
 
-    # ok if everything is behaving nicely, now we need to figure out what sweep we are performing. 
+    finally:
+        picam.close_camera(cam)
+
 
 if __name__ == "__main__":
     cmd()
-

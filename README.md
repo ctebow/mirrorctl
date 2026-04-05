@@ -102,7 +102,8 @@ sequenceDiagram
 | `setup_fsm.py` | **Order-sensitive** bring-up and shutdown: SPI, DAC init sequence, VBIAS on all channels, FCLK PWM (`pigpio.hardware_pwm`), driver enable GPIO. Imports timing and limits from **`constants.py`**. |
 | `voltage_helpers.py` | `vdiff_to_channel_voltage`, `slew` / `slew_x` / `slew_y`, `channel_voltage_to_digital`, `write_dac_channel`, `send_dac_command`. Use this layer if you build custom trajectories while still using the same DAC encoding. |
 | `control_flows.py` | Legacy / helper patterns (not fully wired for all paths). |
-| `voltage_mapping_main.py` | **Click** CLI for camera-centric mapping sweeps (`picam`, `centroiding`); separate from minimal `go_to_voltage_main.py`. |
+| `voltage_mapping_main.py` | **Click** CLI for camera-centric mapping sweeps (`src.picam`, `src.centroiding`). |
+| `src/picam.py` | Picamera2 init, YUV grayscale frames, **`close_camera`** cleanup; shared with `config/get_calib_photos.py`. |
 
 ---
 
@@ -124,8 +125,24 @@ Interactive scripts in this repo (e.g. `go_to_voltage_main.py`) echo that **VDIF
 |--------|---------|
 | `go_to_voltage_main.py` | Minimal REPL: `begin()`, loop `input("vdiffx vdiffy")`, `set_vdiff`, `close()`. |
 | `voltage_mapping_main.py` | Camera + sweep / manual stepping for calibration CSV output. |
+| `config/get_calib_photos.py` | Capture ChArUco stills with **Picamera2** (same pipeline as `src/picam.py`). |
+| `config/calibrate_picam.py` | OpenCV ChArUco lens calibration; writes `config/camera_params.npz`. |
 
 **Note:** `go_to_voltage_main.py` may reference `drive_sine` in the `sin` branch; that method is **not** defined on `FSM` in this tree — use `set_vdiff` patterns or implement a sweep if you need periodic motion.
+
+---
+
+## Camera calibration (Picamera2 + OpenCV)
+
+Calibration capture and voltage mapping share **`src/picam.py`**: YUV420 video at a fixed **(width, height)** (default **640×480** via `DEFAULT_FRAME_SIZE`). This avoids the old mismatch between OpenCV `VideoCapture` and Picamera2.
+
+**Workflow**
+
+1. **Capture** — From the repo root (or any cwd with `src` importable), run `config/get_calib_photos.py`. It saves JPEGs under `config/calib_images/`. Adjust `FRAME_SIZE` in that script to match your experiment; it must match the **`--resolution`** width passed to `voltage_mapping_main.py` (height is 480 unless you change `src/picam.py` and the capture script together).
+2. **Calibrate** — Run `config/calibrate_picam.py`. It reads `config/calib_images/*.jpg`, runs `calibrateCameraCharuco`, and writes **`config/camera_params.npz`** (includes `mtx`, `dist`, `rms`). Calibration fails loudly if too few detections or RMS reprojection error is too high (see `MAX_RMS_PIXELS` in that file).
+3. **Map** — Run `voltage_mapping_main.py` with the same width so intrinsics apply consistently if you later wire undistortion into the centroid pipeline.
+
+**Important:** `src/centroiding.py` does **not** load `camera_params.npz` yet. Centroids are computed on raw grayscale from Picamera2. To use lens correction or homography (`get_homography_matrix` / `get_laser_position_mm` in `config/calibrate_picam.py`), add a small preprocessing step (load `npz`, `cv2.undistort`, optional `perspectiveTransform`) before `find_laser_centroid` — that integration is left for a follow-up.
 
 ---
 
