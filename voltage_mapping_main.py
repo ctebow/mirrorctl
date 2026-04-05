@@ -3,10 +3,8 @@ import time
 import csv
 import click
 
-import centroiding
-import picam
-from constants import VDIFF_MAX_VOLTS, VDIFF_MIN_VOLTS
-from fsm_obj import FSM
+from src import FSM, picam, centroiding, VDIFF_MAX_VOLTS, VDIFF_MIN_VOLTS
+
 
 """
 Testing file for fast mirrorcle mirror benchmarking. Allows for user to input 

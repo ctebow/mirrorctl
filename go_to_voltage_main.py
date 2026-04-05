@@ -12,8 +12,7 @@ SOFTWARE:
 - All control flow functions assume the mirror is starting at 90VBIAS by setting 
 it to 90VBIAS at beginning using slew.
 """
-
-from fsm_obj import FSM
+from src import FSM
 
 if __name__ == "__main__": 
 
