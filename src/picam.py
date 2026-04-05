@@ -13,7 +13,7 @@ except ImportError as e:
     ) from e
 
 # (width, height) — keep in sync with CLI defaults in voltage_mapping_main
-DEFAULT_FRAME_SIZE = (640, 480)
+DEFAULT_FRAME_SIZE = (1920, 1080)
 DEFAULT_FRAME_RATE = 60
 
 
