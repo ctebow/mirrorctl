@@ -15,10 +15,10 @@ _CONFIG_DIR = Path(__file__).resolve().parent
 CALIB_IMAGES_DIR = _CONFIG_DIR / "calib_images"
 OUTPUT_NPZ = _CONFIG_DIR / "camera_params.npz"
 
-SQUARES_X = 5              # Number of squares in X direction
-SQUARES_Y = 7              # Number of squares in Y direction
-SQUARE_LENGTH = 0.03       # The size of a square side (e.g. 0.03 for 30mm)
-MARKER_LENGTH = 0.02       # The size of the ArUco marker side
+SQUARES_X = 20        # Number of squares in X direction
+SQUARES_Y = 26              # Number of squares in Y direction
+SQUARE_LENGTH = 0.0095       # The size of a square side (e.g. 0.03 for 30mm)
+MARKER_LENGTH = 0.007       # The size of the ArUco marker side
 DICT_TYPE = aruco.DICT_4X4_50
 
 # Minimum poses for a stable solve (adjust if needed)
