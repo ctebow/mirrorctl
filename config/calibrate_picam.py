@@ -231,9 +231,28 @@ def get_homography_matrix(frame, mtx, dist, board, charuco_detector, dictionary=
 
     if ids is not None and len(ids) >= 4:
         obj_points, img_points = board.matchImagePoints(corners, ids)
+        obj_points = np.asarray(obj_points)
+        img_points = np.asarray(img_points)
+        # OpenCV 4.10+ often returns (N, 1, 3) / (N, 1, 2); obj[:, :2] slices wrong axes → mismatched N for findHomography.
+        src_pts = np.ascontiguousarray(img_points.reshape(-1, 2), dtype=np.float64)
+        dst_pts = np.ascontiguousarray(obj_points.reshape(-1, 3)[:, :2], dtype=np.float64)
 
-        src_pts = img_points.reshape(-1, 2)
-        dst_pts = obj_points[:, :2].reshape(-1, 2)
+        # #region agent log
+        _agent_log(
+            "calibrate_picam.py:get_homography_matrix",
+            "matchImagePoints shapes before findHomography",
+            {
+                "obj_raw_shape": list(obj_points.shape),
+                "img_raw_shape": list(img_points.shape),
+                "src_pts_shape": list(src_pts.shape),
+                "dst_pts_shape": list(dst_pts.shape),
+            },
+            "E",
+        )
+        # #endregion
+
+        if src_pts.shape[0] != dst_pts.shape[0] or src_pts.shape[0] < 4:
+            return None, undistorted
 
         H, _ = cv2.findHomography(src_pts, dst_pts)
         # #region agent log
