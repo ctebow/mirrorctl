@@ -8,7 +8,9 @@ Board parameters MUST match the CharUco target you printed (generator PDF / Open
 board creation). Use --diagnose if detection fails.
 """
 import argparse
+import json
 import sys
+import time
 from pathlib import Path
 
 import cv2
@@ -28,6 +30,29 @@ DICT_TYPE = aruco.DICT_4X4_50
 
 MIN_CALIB_IMAGES = 3
 MAX_RMS_PIXELS = 5.0
+
+# #region agent log
+_DEBUG_LOG = Path(__file__).resolve().parent.parent / ".cursor" / "debug-499e85.log"
+
+
+def _agent_log(location: str, message: str, data: dict, hypothesis_id: str) -> None:
+    try:
+        _DEBUG_LOG.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "sessionId": "499e85",
+            "timestamp": int(time.time() * 1000),
+            "location": location,
+            "message": message,
+            "data": data,
+            "hypothesisId": hypothesis_id,
+        }
+        with open(_DEBUG_LOG, "a", encoding="utf-8") as f:
+            f.write(json.dumps(payload) + "\n")
+    except Exception:
+        pass
+
+
+# #endregion
 
 
 def make_charuco_board(
@@ -160,14 +185,49 @@ def calibrate_lens(image_files, board, detector, dictionary):
     return rms, mtx, dist
 
 
-def get_homography_matrix(frame, mtx, dist, board, charuco_detector):
+def get_homography_matrix(frame, mtx, dist, board, charuco_detector, dictionary=None):
     """
     Stage B: Homography (keystone) — maps undistorted pixels to board plane (mm).
     """
     undistorted = cv2.undistort(frame, mtx, dist)
     gray = cv2.cvtColor(undistorted, cv2.COLOR_BGR2GRAY)
 
+    # #region agent log
+    n_mark_raw = None
+    if dictionary is not None:
+        n_mark_raw, uniq_raw, _ = _detect_aruco_ids(
+            cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY), dictionary
+        )
+    n_mark_ud, uniq_ud, _ = (
+        _detect_aruco_ids(gray, dictionary) if dictionary is not None else (None, None, None)
+    )
+    _agent_log(
+        "calibrate_picam.py:get_homography_matrix",
+        "after undistort, before Charuco detectBoard",
+        {
+            "undist_gray_shape": list(gray.shape),
+            "aruco_on_raw_gray_n": n_mark_raw,
+            "aruco_on_undist_gray_n": n_mark_ud,
+            "undist_aruco_unique_ids_count": len(uniq_ud) if uniq_ud is not None else None,
+        },
+        "B",
+    )
+    # #endregion
+
     corners, ids, _, _ = charuco_detector.detectBoard(gray)
+
+    # #region agent log
+    cid_len = None if ids is None else int(len(ids))
+    _agent_log(
+        "calibrate_picam.py:get_homography_matrix",
+        "after CharucoDetector.detectBoard (undistorted gray)",
+        {
+            "charuco_ids_len": cid_len,
+            "charuco_ids_ge_4": cid_len is not None and cid_len >= 4,
+        },
+        "A",
+    )
+    # #endregion
 
     if ids is not None and len(ids) >= 4:
         obj_points, img_points = board.matchImagePoints(corners, ids)
@@ -176,8 +236,24 @@ def get_homography_matrix(frame, mtx, dist, board, charuco_detector):
         dst_pts = obj_points[:, :2].reshape(-1, 2)
 
         H, _ = cv2.findHomography(src_pts, dst_pts)
+        # #region agent log
+        _agent_log(
+            "calibrate_picam.py:get_homography_matrix",
+            "findHomography result",
+            {"H_is_none": H is None, "n_src_pts": int(src_pts.shape[0])},
+            "E",
+        )
+        # #endregion
         return H, undistorted
 
+    # #region agent log
+    _agent_log(
+        "calibrate_picam.py:get_homography_matrix",
+        "homography skipped (insufficient Charuco ids)",
+        {"charuco_ids_len": cid_len},
+        "A",
+    )
+    # #endregion
     return None, undistorted
 
 
@@ -196,8 +272,22 @@ def get_laser_position_mm(frame, mtx, dist, H):
     return world_point[0][0]
 
 
-def update_homography_only(ref_image: Path, board, charuco_detector) -> None:
+def update_homography_only(ref_image: Path, board, charuco_detector, dictionary, legacy_charuco: bool) -> None:
     """Load existing camera_params.npz and replace/add H from a single board image."""
+    # #region agent log
+    _agent_log(
+        "calibrate_picam.py:update_homography_only",
+        "entry",
+        {
+            "ref_image": str(ref_image),
+            "legacy_charuco_cli": bool(legacy_charuco),
+            "npz_has_charuco_legacy": "charuco_legacy" in np.load(OUTPUT_NPZ, allow_pickle=False).files
+            if OUTPUT_NPZ.is_file()
+            else None,
+        },
+        "A",
+    )
+    # #endregion
     if not OUTPUT_NPZ.is_file():
         raise SystemExit(f"Missing {OUTPUT_NPZ}; run lens calibration first.")
     data = np.load(OUTPUT_NPZ, allow_pickle=False)
@@ -207,7 +297,7 @@ def update_homography_only(ref_image: Path, board, charuco_detector) -> None:
     frame = cv2.imread(str(ref_image))
     if frame is None:
         raise SystemExit(f"Could not read image: {ref_image}")
-    H, _ = get_homography_matrix(frame, mtx, dist, board, charuco_detector)
+    H, _ = get_homography_matrix(frame, mtx, dist, board, charuco_detector, dictionary)
     if H is None:
         raise SystemExit("ChArUco board not detected in reference image; cannot compute H.")
     np.savez(OUTPUT_NPZ, mtx=mtx, dist=dist, rms=rms, H=H)
@@ -306,7 +396,26 @@ if __name__ == "__main__":
         raise SystemExit(0)
 
     if args.update_homography is not None:
-        update_homography_only(args.update_homography, board, charuco_detector)
+        # #region agent log
+        _agent_log(
+            "calibrate_picam.py:__main__",
+            "--update-homography board model",
+            {
+                "squares_x": args.squares_x,
+                "squares_y": args.squares_y,
+                "dict": args.dict,
+                "legacy_charuco": bool(args.legacy_charuco),
+            },
+            "C",
+        )
+        # #endregion
+        update_homography_only(
+            args.update_homography,
+            board,
+            charuco_detector,
+            dictionary,
+            args.legacy_charuco,
+        )
         raise SystemExit(0)
 
     if not images:
@@ -318,7 +427,7 @@ if __name__ == "__main__":
         ref = cv2.imread(str(args.homography_ref))
         if ref is None:
             raise SystemExit(f"Could not read --homography-ref: {args.homography_ref}")
-        H, _ = get_homography_matrix(ref, mtx, dist, board, charuco_detector)
+        H, _ = get_homography_matrix(ref, mtx, dist, board, charuco_detector, dictionary)
         if H is None:
             raise SystemExit("ChArUco not detected in homography reference; npz saved without H.")
         save_kw["H"] = H
