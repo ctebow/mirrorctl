@@ -18,7 +18,8 @@ import numpy as np
 
 from src import centroiding, picam
 
-_DEFAULT_CAL = Path(__file__).resolve().parent / "config" / "camera_params.npz"
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+_DEFAULT_CAL = _REPO_ROOT / "config" / "camera_params.npz"
 
 # BGR, rank 1 .. 5 — distinct on typical gray/laser imagery
 _PEAK_COLORS = (
@@ -123,13 +124,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--text-out",
         type=Path,
-        default=Path("test_centroid_metrics.txt"),
+        default=Path("centroid_metrics.txt"),
         help="Text file for centroid and distance-from-center (default: %(default)s).",
     )
     parser.add_argument(
         "--image-out",
         type=Path,
-        default=Path("test_centroid_annotated.jpg"),
+        default=Path("diagnose_centroid_annotated.jpg"),
         help="Undistorted snapshot with annotations (default: %(default)s).",
     )
     parser.add_argument(

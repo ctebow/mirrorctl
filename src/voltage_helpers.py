@@ -7,16 +7,18 @@ ADD MIRRORCLE DOCUMENTATION DESCRIBING HOW TO CONVERT.
 """
 import time
 from .constants import V_MAX_CHANNEL, VDIFF_MAX_VOLTS, VDIFF_MIN_VOLTS, VBIAS, V_MAX_DIGITAL
+
 IS_LINUX = True
+
 
 def channel_voltage_to_digital(volts: float) -> int:
     """
-    Convert volts in base 10 to 16-bit DAC value.
-    Input is clamped to 0–200 V. Scale: 0 V -> 0x0000, 200 V -> 0xFFFF.
+    Convert absolute channel voltage (0–200 V scale) to 16-bit DAC code.
+    Values outside the allowed channel range for this hardware return -1 (no silent vdiff clamping).
     """
-    if (0 > volts or volts > V_MAX_CHANNEL):
+    v = float(volts)
+    if v < 0 or v > V_MAX_CHANNEL:
         return -1
-    v = max(VDIFF_MIN_VOLTS, min(VDIFF_MAX_VOLTS, float(volts)))
     return round((v / 200.0) * 65535.0)
 
 
@@ -83,7 +85,7 @@ def slew_x(start_vdiff: float, end_vdiff: float, slew_params: tuple, spi) -> flo
 
             ok1 = write_dac_channel(0, ch0_dac, spi)
             ok2 = write_dac_channel(1, ch1_dac, spi)
-            if ok1 == -1 or ok2 == 1:
+            if ok1 == -1 or ok2 == -1:
                 return curr_vdiff
             break
         ch0_dac = channel_voltage_to_digital(ch0_v)

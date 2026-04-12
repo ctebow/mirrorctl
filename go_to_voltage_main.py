@@ -5,70 +5,52 @@ Mirrorcle MEMS Digital Driver — Raspberry Pi + Python control script.
 TRIPLE CHECK BEFORE RUNNING WITH ACTUAL MEMS MIRROR.
 VDIFF (Channel 0 - Channel 1 or Channel 2 - Channel 3) MUST NOT EXCEED 2 * VBIAS
 (e.g. 180 V for VBIAS=90). Exceeding this can permanently damage the mirror.
-Do not use with the mirror before checking with Graydon, Sofi, or Caden.
-
-
-SOFTWARE:
-- All control flow functions assume the mirror is starting at 90VBIAS by setting 
-it to 90VBIAS at beginning using slew.
 """
 from src import FSM
+from src.exceptions import UnsafeVoltageRequest
 
-if __name__ == "__main__": 
 
-    # THIS IS WHERE ALL SETUP HAPPENS --> FSM IS NOW ACTIVE AT 90VBIAS
+if __name__ == "__main__":
     fsm = FSM()
-    active = fsm.begin()
+    result = fsm.begin_interactive()
     print(fsm.get_voltages())
 
-    if active != 1:
+    if not result.ok:
+        print("FSM failed to start or was aborted.")
+    elif result.simulated:
+        print("FSM in test mode (not on Linux / no hardware drivers).")
         try:
-            while True:  # main loop
+            while True:
                 usr = input("Input vdiffx, vdiffy (x y): ")
                 lst = usr.split()
                 if len(lst) != 2:
-                    if lst[0] == "sin":
-                        fsm.drive_sine(10, 2, 10)
-                    else:
-                        continue
-                x, y = tuple(lst)
-                if x and y:
-                    print(f'setting vdiff: x: {x}, y: {y}')
-                    fsm.set_vdiff(float(x), float(y))
-                else:
                     continue
-
-        except KeyboardInterrupt:
-            print("Keyboard interrupt received — shutting down")
-        except:
-            print("Other error occurred, shutting down.")
-        finally:
-            fsm.close()
-
-    else:
-        print("FSM in test mode, not on linux system. Wanna try slew?: ")
-        try:
-            while True:  # main loop
-                    usr = input("Input vdiffx, vdiffy (x y): ")
-                    lst = usr.split()
-                    if len(lst) != 2:
-                        if lst[0] == "sin":
-                            fsm.drive_sine(10, 2, 10)
-                        else:
-                            continue
-                    x, y = tuple(lst)
-                    if x and y:
-                        print(f'setting vdiff: x: {x}, y: {y}')
+                x, y = lst[0], lst[1]
+                if x and y:
+                    try:
+                        print(f"setting vdiff: x: {x}, y: {y}")
                         fsm.set_vdiff(float(x), float(y))
-                    else:
-                        continue
-
+                    except UnsafeVoltageRequest as exc:
+                        print(f"Unsafe: {exc}")
         except KeyboardInterrupt:
             print("Keyboard interrupt received — shutting down")
-        except:
-            print("Other error occurred, shutting down.")
         finally:
             fsm.close()
-
-        
-
+    else:
+        try:
+            while True:
+                usr = input("Input vdiffx, vdiffy (x y): ")
+                lst = usr.split()
+                if len(lst) != 2:
+                    continue
+                x, y = lst[0], lst[1]
+                if x and y:
+                    try:
+                        print(f"setting vdiff: x: {x}, y: {y}")
+                        fsm.set_vdiff(float(x), float(y))
+                    except UnsafeVoltageRequest as exc:
+                        print(f"Unsafe: {exc}")
+        except KeyboardInterrupt:
+            print("Keyboard interrupt received — shutting down")
+        finally:
+            fsm.close()

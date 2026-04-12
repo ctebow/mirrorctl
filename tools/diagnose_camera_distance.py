@@ -23,7 +23,8 @@ import numpy as np
 
 from src import centroiding, picam
 
-_DEFAULT_CAL = Path(__file__).resolve().parent / "config" / "camera_params.npz"
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+_DEFAULT_CAL = _REPO_ROOT / "config" / "camera_params.npz"
 
 
 def _average_spot_mm(

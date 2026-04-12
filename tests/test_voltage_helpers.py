@@ -4,19 +4,20 @@ Constraints: vdiff in [V_MIN_VOLTS, V_MAX_VOLTS]; channel voltages derived from 
 """
 import pytest
 from unittest.mock import patch
-import voltage_helpers as vh
-from constants import VBIAS, VDIFF_MAX_VOLTS, VDIFF_MIN_VOLTS, V_MAX_DIGITAL, SLEW_AMOUNT_V, SLEW_RATE_MS
+
+import src.voltage_helpers as vh
+from src.constants import VBIAS, VDIFF_MAX_VOLTS, VDIFF_MIN_VOLTS, V_MAX_CHANNEL, V_MAX_DIGITAL, SLEW_AMOUNT_V, SLEW_RATE_MS
 
 SLEW = (SLEW_RATE_MS, SLEW_AMOUNT_V)
 
 # --- channel_voltage_to_digital ---
 
-class TestChannelVoltageToDigital:
-    """0 V -> 0x0000, 200 V -> 0xFFFF; input clamped to [V_MIN_VOLTS, V_MAX_VOLTS]."""
 
-    def test_max_scale_just_under_180v(self):
-        # Returns -1 for v >= 180; use 179.99 for max in-range value
-        v = 175.99
+class TestChannelVoltageToDigital:
+    """Scale 0–200 V → DAC; channel voltages above V_MAX_CHANNEL rejected (no vdiff clamp)."""
+
+    def test_max_scale_just_under_v_max_channel(self):
+        v = V_MAX_CHANNEL - 0.01
         got = vh.channel_voltage_to_digital(v)
         expected = round((v / 200.0) * 65535.0)
         assert got == expected
@@ -33,29 +34,29 @@ class TestChannelVoltageToDigital:
         assert got >= 0
         assert got <= 0xFFFF
 
-    def test_just_under_180(self):
-        v = 175.999
+    def test_just_under_max_channel(self):
+        v = V_MAX_CHANNEL - 0.001
         got = vh.channel_voltage_to_digital(v)
         assert 0 <= got <= 0xFFFF
 
     def test_negative_returns_minus_one(self):
         assert vh.channel_voltage_to_digital(-180.1) == -1
 
-    def test_zero_returns_minus_one(self):
+    def test_zero_returns_digital_zero(self):
         assert vh.channel_voltage_to_digital(0.0) == 0
 
-    def test_max_volts_in_range_returns_digital(self):
-        # V_MAX_VOLTS is inclusive; 176 is valid and returns scaled digital value
-        got = vh.channel_voltage_to_digital(VDIFF_MAX_VOLTS)
-        expected = round((VDIFF_MAX_VOLTS / 200.0) * 65535.0)
+    def test_max_channel_in_range_returns_digital(self):
+        got = vh.channel_voltage_to_digital(V_MAX_CHANNEL)
+        expected = round((V_MAX_CHANNEL / 200.0) * 65535.0)
         assert got == expected
         assert 0 <= got <= 0xFFFF
 
-    def test_above_max_returns_minus_one(self):
-        assert vh.channel_voltage_to_digital(VDIFF_MAX_VOLTS + 1.0) == -1
+    def test_above_max_channel_returns_minus_one(self):
+        assert vh.channel_voltage_to_digital(V_MAX_CHANNEL + 1.0) == -1
 
 
 # --- clamp_vdiff ---
+
 
 class TestClampVdiff:
     """Returns vdiff if in [V_MIN_VOLTS, V_MAX_VOLTS], else -1."""
@@ -86,6 +87,7 @@ class TestClampVdiff:
 
 
 # --- vdiff_to_channel_voltage ---
+
 
 class TestVdiffToChannelVoltage:
     """ch0 = VBIAS + vdiff_x/2, ch1 = VBIAS - vdiff_x/2; same for y (ch2, ch3).
@@ -128,7 +130,6 @@ class TestVdiffToChannelVoltage:
         assert all(0 <= v <= 180 for v in (ch0, ch1, ch2, ch3))
 
     def test_clamped_invalid_vdiff_x_uses_minus_one(self):
-        # clamp_vdiff(200) -> -1, so ch0 = VBIAS + (-1)/2, ch1 = VBIAS - (-1)/2
         ch0, ch1, ch2, ch3 = vh.vdiff_to_channel_voltage(200.0, 0.0)
         assert ch0 == VBIAS - 0.5
         assert ch1 == VBIAS + 0.5
@@ -165,6 +166,7 @@ class TestVdiffToChannelVoltage:
 
 # --- get_rounded_channel_values ---
 
+
 class TestGetRoundedChannelValues:
     """Returns (round(VBIAS + vdiff/2), round(VBIAS - vdiff/2))."""
 
@@ -193,12 +195,11 @@ class TestGetRoundedChannelValues:
 
 # --- write_dac_channel (logic only; no SPI in tests) ---
 
+
 class TestWriteDacChannel:
     """Command format and bounds; no actual SPI when IS_LINUX=False."""
 
     def test_channel_bounds(self, mock_spi):
-        # cmd = 0x100000 | (channel << 16) | value -> high byte is 0x10 + channel
-        # value must be in [0, V_MAX_DIGITAL]; 0xFFFF exceeds V_MAX_DIGITAL when V_MAX_VOLTS < 200
         cmd = vh.write_dac_channel(0, 0, mock_spi)
         assert (cmd >> 16) == 0x10
         assert cmd & 0xFFFF == 0
@@ -218,10 +219,11 @@ class TestWriteDacChannel:
 
     def test_value_above_65535_raises(self, mock_spi):
         res = vh.write_dac_channel(0, 65536, mock_spi)
-        assert(res == -1)
+        assert res == -1
 
 
 # --- slew_x / slew_y / slew (with mocked time.sleep and no SPI) ---
+
 
 class TestSlew:
     """Slew returns end_vdiff; with valid inputs channels stay within 0--180 and pair diff ≤ 180."""
@@ -231,48 +233,47 @@ class TestSlew:
         class MockSpi:
             def xfer2(self, payload):
                 pass
+
         return MockSpi()
 
-    @patch("voltage_helpers.time.sleep")
+    @patch("src.voltage_helpers.time.sleep")
     def test_slew_x_returns_end_vdiff(self, mock_sleep, mock_spi):
         out = vh.slew_x(0.0, 120.0, SLEW, mock_spi)
         assert out == 120.0
 
-    @patch("voltage_helpers.time.sleep")
+    @patch("src.voltage_helpers.time.sleep")
     def test_slew_x_zero_to_zero(self, mock_sleep, mock_spi):
         out = vh.slew_x(0.0, 0.0, SLEW, mock_spi)
         assert out == 0.0
 
-    @patch("voltage_helpers.time.sleep")
+    @patch("src.voltage_helpers.time.sleep")
     def test_slew_x_max_safe_end(self, mock_sleep, mock_spi):
-        # ch0 = VBIAS + end/2 must be <= V_MAX_VOLTS; so end <= 2*(V_MAX_VOLTS - VBIAS) = 2*86 = 172
         end = 2.0 * (VDIFF_MAX_VOLTS - VBIAS)
         out = vh.slew_x(0.0, end, SLEW, mock_spi)
         assert out == end
 
-    @patch("voltage_helpers.time.sleep")
+    @patch("src.voltage_helpers.time.sleep")
     def test_slew_y_returns_end_vdiff(self, mock_sleep, mock_spi):
         out = vh.slew_y(0.0, 120.0, SLEW, mock_spi)
         assert out == 120.0
 
-    @patch("voltage_helpers.time.sleep")
+    @patch("src.voltage_helpers.time.sleep")
     def test_slew_y_zero_to_zero(self, mock_sleep, mock_spi):
         out = vh.slew_y(0.0, 0.0, SLEW, mock_spi)
         assert out == 0.0
 
-    @patch("voltage_helpers.time.sleep")
+    @patch("src.voltage_helpers.time.sleep")
     def test_slew_returns_end_state(self, mock_sleep, mock_spi):
         out = vh.slew((0.0, 0.0), (120.0, 120.0), SLEW, mock_spi)
         assert out == (120.0, 120.0)
 
-    @patch("voltage_helpers.time.sleep")
+    @patch("src.voltage_helpers.time.sleep")
     def test_slew_close_to_vbias(self, mock_sleep, mock_spi):
         out = vh.slew((120.0, 120.0), (0.0, 0.0), SLEW, mock_spi)
         assert out == (0.0, 0.0)
 
-    @patch("voltage_helpers.time.sleep")
+    @patch("src.voltage_helpers.time.sleep")
     def test_slew_extreme_valid(self, mock_sleep, mock_spi):
-        # Max vdiff such that channel voltages stay <= V_MAX_VOLTS (ch = VBIAS + vdiff/2)
         max_vdiff = 2.0 * (VDIFF_MAX_VOLTS - VBIAS)
         end = (max_vdiff, max_vdiff)
         out = vh.slew((0.0, 0.0), end, SLEW, mock_spi)

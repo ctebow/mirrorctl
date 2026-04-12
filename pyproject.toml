@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mirrorctl"
+version = "0.1.0"
+description = "FSM mirror control, camera calibration, and voltage mapping for Raspberry Pi"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "click>=8.0",
+    "numpy>=1.24",
+    "opencv-python-headless>=4.8",
+    "textual>=0.47",
+    "rich>=13.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+]
+pi = [
+    "picamera2>=0.3.12",
+    "pigpio>=1.78",
+    "spidev>=3.5",
+]
+
+[project.scripts]
+mirrorctl-tui = "tui.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*", "tui*", "services*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-m 'not hardware'"
+markers = [
+    "hardware: real SPI / GPIO / camera (skipped in default CI)",
+    "integration: multi-component tests",
+]
