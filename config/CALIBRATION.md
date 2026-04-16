@@ -27,6 +27,28 @@ Optional: `--width 640`, `--fps 24`, `--quality 75`.
 
 ---
 
+## 2a. One-command interactive full calibration (recommended)
+
+This runs the whole pipeline in one script:
+
+- starts browser preview (same style as `preview_stream.py`)
+- prompts for camera settings (defaults provided)
+- lets you capture images with `s/save` and finish with `q/quit`
+- runs lens calibration + homography and writes `config/camera_params.npz`
+- **always uses legacy CharUco mode** internally
+
+```bash
+cd /path/to/rasppi_src
+python3 -u config/calibrate_camera_interactive.py
+```
+
+Notes:
+
+- Default homography reference is the **first image captured in this session**.
+- You can still use `config/calibrate_picam.py` directly for diagnose, custom runs, or homography-only updates.
+
+---
+
 ## 3. Capture calibration images (Picamera2, CLI)
 
 Saves JPEGs under `config/calib_images/`. **No GUI** — type commands on the Pi terminal (`s` = save, `q` = quit). Over SSH, use unbuffered Python if keys lag:
@@ -180,6 +202,7 @@ The first two columns are always **`vdiffx`**, **`vdiffy`**. The centroid column
 | File / directory | Role |
 |------------------|------|
 | `config/preview_stream.py` | MJPEG server for live browser preview |
+| `config/calibrate_camera_interactive.py` | End-to-end interactive flow: preview + capture + lens calibration + homography (legacy CharUco forced). |
 | `config/calib_images/` | Viewable JPEGs from `get_calib_photos.py` — input to `calibrate_picam.py` only; **not** read by mapping at runtime. |
 | `config/camera_params.npz` | Output of `calibrate_picam.py`: `mtx`, `dist`, `rms`, optional `H` — **this** is what `voltage_mapping_main.py` loads (unless `--no-calib`). |
 | `voltage_mapping_out.csv` (or `-o`) | Mapping output |

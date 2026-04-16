@@ -12,7 +12,6 @@ dependencies = [
     "click>=8.0",
     "numpy>=1.24",
     "opencv-python-headless>=4.8",
-    "textual>=0.47",
     "rich>=13.0",
 ]
 
@@ -26,12 +25,9 @@ pi = [
     "spidev>=3.5",
 ]
 
-[project.scripts]
-mirrorctl-tui = "tui.__main__:main"
-
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["src*", "tui*", "services*"]
+include = ["src*", "services*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

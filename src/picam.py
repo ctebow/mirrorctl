@@ -14,7 +14,10 @@ try:
 except ImportError as e:
     raise ImportError(
         "picamera2 is required for camera capture on the Raspberry Pi. "
-        "Install it with your OS packages (e.g. apt install python3-picamera2)."
+        "If you use a venv: either recreate it with "
+        "`python3 -m venv .venv --system-site-packages` after `sudo apt install python3-picamera2`, "
+        "or run with the system interpreter (deactivate the venv). "
+        "apt installs into system Python, not into an isolated venv."
     ) from e
 
 # (width, height) — keep in sync with CLI defaults in voltage_mapping_main
