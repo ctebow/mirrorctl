@@ -169,3 +169,62 @@ def slew(start_state: tuple, end_state: tuple, slew_params: tuple, spi) -> tuple
     vdiff_x_end = slew_x(vdiff_x_start, vdiff_x_end, (slew_params), spi)
     vdiff_y_end = slew_y(vdiff_y_start, vdiff_y_end, (slew_params), spi)
     return (vdiff_x_end, vdiff_y_end)
+
+
+def slew_xy_coordinated(start_state: tuple, end_state: tuple, slew_params: tuple, spi) -> tuple:
+    """
+    Coordinated XY slew: step x/y together so both axes progress concurrently.
+
+    Uses linear interpolation across a shared number of steps determined from the
+    larger axis move and ``slew_step``. Safety behavior mirrors existing helpers:
+    invalid channel voltages or DAC writes abort and return the last commanded
+    vdiff tuple.
+    """
+    vdiff_x_start, vdiff_y_start = start_state
+    vdiff_x_end, vdiff_y_end = end_state
+    slew_time, slew_step = slew_params
+
+    dx = vdiff_x_end - vdiff_x_start
+    dy = vdiff_y_end - vdiff_y_start
+    max_delta = max(abs(dx), abs(dy))
+
+    if max_delta == 0:
+        return (vdiff_x_start, vdiff_y_start)
+    if slew_step <= 0:
+        return (vdiff_x_start, vdiff_y_start)
+
+    steps = max(1, int(max_delta / slew_step))
+    if (max_delta - (steps * slew_step)) > 0:
+        steps += 1
+
+    last_x = vdiff_x_start
+    last_y = vdiff_y_start
+
+    for i in range(1, steps + 1):
+        frac = i / steps
+        curr_x = vdiff_x_start + (dx * frac)
+        curr_y = vdiff_y_start + (dy * frac)
+
+        ch0_v, ch1_v, ch2_v, ch3_v = vdiff_to_channel_voltage(curr_x, curr_y)
+        if abs(ch0_v - ch1_v) > 180 or abs(ch2_v - ch3_v) > 180:
+            return (last_x, last_y)
+
+        ch0_dac = channel_voltage_to_digital(ch0_v)
+        ch1_dac = channel_voltage_to_digital(ch1_v)
+        ch2_dac = channel_voltage_to_digital(ch2_v)
+        ch3_dac = channel_voltage_to_digital(ch3_v)
+        if ch0_dac == -1 or ch1_dac == -1 or ch2_dac == -1 or ch3_dac == -1:
+            return (last_x, last_y)
+
+        ok0 = write_dac_channel(0, ch0_dac, spi)
+        ok1 = write_dac_channel(1, ch1_dac, spi)
+        ok2 = write_dac_channel(2, ch2_dac, spi)
+        ok3 = write_dac_channel(3, ch3_dac, spi)
+        if ok0 == -1 or ok1 == -1 or ok2 == -1 or ok3 == -1:
+            return (last_x, last_y)
+
+        last_x = curr_x
+        last_y = curr_y
+        time.sleep(slew_time)
+
+    return (vdiff_x_end, vdiff_y_end)
