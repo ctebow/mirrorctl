@@ -17,6 +17,14 @@ class UnsafeVoltageRequest(MirrorctlError):
         self.axis = axis
 
 
+class UnsafeAngleRequest(MirrorctlError):
+    """Requested angular displacement outside allowed range."""
+
+    def __init__(self, message: str, *, axis: str | None = None):
+        super().__init__(message)
+        self.axis = axis
+
+
 class InitializationAborted(MirrorctlError):
     """User or policy declined hardware initialization (e.g. confirm false)."""
 

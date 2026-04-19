@@ -7,6 +7,9 @@ __all__ = [
     "VDIFF_MAX_VOLTS",
     "VDIFF_MIN_VOLTS",
     "FSM",
+    "FsmAngular",
+    "AxisPolynomialMap",
+    "AngularSafetyLimits",
     "centroiding",
     "picam",
 ]
@@ -15,6 +18,9 @@ __all__ = [
 def __getattr__(name: str):
     if name == "FSM":
         return importlib.import_module(".fsm_obj", __name__).FSM
+    if name in {"FsmAngular", "AxisPolynomialMap", "AngularSafetyLimits"}:
+        module = importlib.import_module(".fsm_angular", __name__)
+        return getattr(module, name)
     if name == "centroiding":
         return importlib.import_module(".centroiding", __name__)
     if name == "picam":
