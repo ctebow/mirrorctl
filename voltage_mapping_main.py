@@ -36,7 +36,7 @@ def _open_camera(resolution: int):
 )
 @click.option("-s", "--step-size", default=1.0, type=float, help="VDIFF step (V)")
 @click.option("--start", default=0.0, type=float, help="Start voltage (V)")
-@click.option("--end", default=175.0, type=float, help="End voltage (V)")
+@click.option("--end", default=150.0, type=float, help="End voltage (V)")
 @click.option("--start-x", default=0.0, type=float, help="Grid start vdiff_x (V)")
 @click.option("--start-y", default=0.0, type=float, help="Grid start vdiff_y (V)")
 @click.option("--end-x", default=0.0, type=float, help="Grid end vdiff_x (V)")
