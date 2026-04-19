@@ -35,14 +35,14 @@ def _open_camera(resolution: int):
     help="CSV output path (default: runs/mapping/voltage_mapping_out.csv)",
 )
 @click.option("-s", "--step-size", default=1.0, type=float, help="VDIFF step (V)")
-@click.option("--start", default=0.0, type=float, help="Start voltage (V)")
-@click.option("--end", default=150.0, type=float, help="End voltage (V)")
+@click.option("--start", default=0.0, type=float, help="Auto mode start voltage (V)")
+@click.option("--end", default=150.0, type=float, help="Auto mode end voltage (V)")
 @click.option("--start-x", default=0.0, type=float, help="Grid start vdiff_x (V)")
+@click.option("--end-x", default=150.0, type=float, help="Grid end vdiff_x (V)")
 @click.option("--start-y", default=0.0, type=float, help="Grid start vdiff_y (V)")
-@click.option("--end-x", default=0.0, type=float, help="Grid end vdiff_x (V)")
-@click.option("--end-y", default=0.0, type=float, help="Grid end vdiff_y (V)")
-@click.option("--step-x", default=0.0, type=float, help="Grid step on x axis (V); 0 keeps x fixed")
-@click.option("--step-y", default=0.0, type=float, help="Grid step on y axis (V); 0 keeps y fixed")
+@click.option("--end-y", default=150.0, type=float, help="Grid end vdiff_y (V)")
+@click.option("--step-x", default=0.0, type=float, help="Grid x step (V); 0 uses --step-size")
+@click.option("--step-y", default=0.0, type=float, help="Grid y step (V); 0 uses --step-size")
 @click.option("--resolution", default=640, type=int, help="Frame width (height 480)")
 @click.option("--roi", default=50, type=int, help="Centroid ROI half-size (px)")
 @click.option("--mode", default="man", type=str, help="auto | grid | man | test-cam")
@@ -178,14 +178,11 @@ def cmd(
             params = MappingSweepParams(
                 num_frames=num_frames,
                 settling_time=settling_time,
-                axis=axis,
                 step_size=step_size,
-                start=start,
-                end=end,
                 roi=roi,
                 start_x=start_x,
-                start_y=start_y,
                 end_x=end_x,
+                start_y=start_y,
                 end_y=end_y,
                 step_x=step_x,
                 step_y=step_y,
