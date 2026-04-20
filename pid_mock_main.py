@@ -1,27 +1,20 @@
 """
 Basic PID mock runner:
-- Initializes camera and FSM.
-- Streams centroid error from raspi_camera stubs.
+- Initializes FSM and QPD camera server.
+- Streams centroid error from src.picam_qpd_centroid.
 - Applies PID delta corrections onto current vdiff.
 """
 
 from __future__ import annotations
 
 import time
-from typing import Callable
 
 import click
 
-from src import FSM, picam
+from src import FSM
 from src.exceptions import HardwareUnavailable, UnsafeVoltageRequest
+from src.picam_qpd_centroid import get_centroid_err, start_camera_server
 from src.pid_helpers import PidAxisState, PidGains, checked_vdiff_command, pid_axis_step, validate_pid_inputs
-
-
-def _open_camera(resolution: int):
-    try:
-        return picam.init_camera(resolution)
-    except Exception as exc:
-        raise HardwareUnavailable(f"Camera failed: {exc}") from exc
 
 
 def _safe_stop_fsm(fsm: FSM, *, reason: str | None = None) -> None:
@@ -55,7 +48,7 @@ def cmd(
     mode: str,
     resolution: int,
 ):
-    cam = None
+    _ = resolution  # Reserved for future QPD camera config wiring.
     fsm = FSM()
 
     try:
@@ -63,21 +56,16 @@ def cmd(
         validate_pid_inputs(refresh_ms=refresh_ms, gains=gains)
         dt_s = refresh_ms / 1000.0
 
-        cam = _open_camera(resolution)
-
         result = fsm.begin_interactive()
         if not result.ok:
             _safe_stop_fsm(fsm, reason="FSM failed to start or was aborted.")
             return 1
 
         try:
-            from raspi_camera import get_centroid_err, start_camera_server
+            start_camera_server()
         except Exception as exc:
-            raise HardwareUnavailable(
-                f"Failed to import raspi_camera stubs (start_camera_server/get_centroid_err): {exc}"
-            ) from exc
+            raise HardwareUnavailable(f"Failed to start QPD camera server: {exc}") from exc
 
-        start_camera_server()
         click.echo(f"PID started in {mode} mode. refresh={refresh_ms} ms gains=({kp}, {ki}, {kd})")
 
         state_x = PidAxisState()
@@ -127,8 +115,6 @@ def cmd(
     except Exception as exc:
         _safe_stop_fsm(fsm, reason=f"Unexpected crash: {exc}")
         return 1
-    finally:
-        picam.close_camera(cam)
 
 
 if __name__ == "__main__":
