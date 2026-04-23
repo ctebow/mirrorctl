@@ -7,6 +7,7 @@ Basic PID mock runner:
 
 from __future__ import annotations
 
+import json
 import time
 
 import click
@@ -65,6 +66,22 @@ def cmd(
             start_camera_server()
         except Exception as exc:
             raise HardwareUnavailable(f"Failed to start QPD camera server: {exc}") from exc
+
+        # #region agent log
+        try:
+            _rec = {
+                "sessionId": "851f46",
+                "timestamp": int(time.time() * 1000),
+                "location": "pid_mock_main.py:cmd",
+                "message": "camera_server_started",
+                "data": {"mode": mode, "kp": kp},
+                "hypothesisId": "H1",
+            }
+            with open("/home/ctebow/pulse-a/mirrorctl/.cursor/debug-851f46.log", "a", encoding="utf-8") as _f:
+                _f.write(json.dumps(_rec) + "\n")
+        except Exception:
+            pass
+        # #endregion
 
         click.echo(f"PID started in {mode} mode. refresh={refresh_ms} ms gains=({kp}, {ki}, {kd})")
 
