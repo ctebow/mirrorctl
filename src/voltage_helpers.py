@@ -228,3 +228,29 @@ def slew_xy_coordinated(start_state: tuple, end_state: tuple, slew_params: tuple
         time.sleep(slew_time)
 
     return (vdiff_x_end, vdiff_y_end)
+
+def slew_pid(start_state: tuple, end_state: tuple, spi) -> tuple:
+    ch0_v_end, ch1_v_end, ch2_v_end, ch3_v_end = vdiff_to_channel_voltage(end_state[0], end_state[1])
+    if abs(ch0_v_end - ch1_v_end) > 170 or abs(ch2_v_end - ch3_v_end) > 170:
+        return (start_state[0], start_state[1])
+
+
+    ch0_dac = channel_voltage_to_digital(ch0_v_end)
+    ch1_dac = channel_voltage_to_digital(ch1_v_end)
+    ch2_dac = channel_voltage_to_digital(ch2_v_end)
+    ch3_dac = channel_voltage_to_digital(ch3_v_end)
+    if ch0_dac == -1 or ch1_dac == -1 or ch2_dac == -1 or ch3_dac == -1:
+        return (start_state[0], start_state[1])
+
+    ok0 = write_dac_channel(0, ch0_dac, spi)
+    ok1 = write_dac_channel(1, ch1_dac, spi)
+    ok2 = write_dac_channel(2, ch2_dac, spi)
+    ok3 = write_dac_channel(3, ch3_dac, spi)
+    if ok0 == -1 or ok1 == -1 or ok2 == -1 or ok3 == -1:
+        return (start_state[0], start_state[1])
+    #print(f"Wrote final vdiff_x: {end_state[0]} -> ch2: {ch0_v_end} ch3: {ch1_v_end}")
+    #print(f"Wrote final vdiff_y: {end_state[1]} -> ch2: {ch2_v_end} ch3: {ch3_v_end}")
+    return (end_state[0], end_state[1])
+    
+
+

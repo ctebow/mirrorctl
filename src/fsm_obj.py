@@ -133,3 +133,22 @@ class FSM:
         self.vdiff_y = res[1]
 
         return res
+
+    def set_vdiff_pid(self, vdiff_x_new: float, vdiff_y_new: float) -> Tuple[float, float]:
+            self._check_vdiff_range(vdiff_x_new, vdiff_y_new)
+
+            res = helpers.slew_pid(
+                (self.vdiff_x, self.vdiff_y),
+                (vdiff_x_new, vdiff_y_new),
+                self.spi,
+            )
+
+            if res[0] != vdiff_x_new:
+                log.warning("Slew may not have reached requested vdiff_x (got %s, wanted %s)", res[0], vdiff_x_new)
+            if res[1] != vdiff_y_new:
+                log.warning("Slew may not have reached requested vdiff_y (got %s, wanted %s)", res[1], vdiff_y_new)
+
+            self.vdiff_x = res[0]
+            self.vdiff_y = res[1]
+
+            return res
