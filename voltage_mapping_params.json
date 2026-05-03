@@ -1,6 +1,6 @@
 {
-  "mode": "sweep",
-  "outfile": "runs/mapping/voltage_mapping_out_diagnose_yaxis_3.csv",
+  "mode": "verify-sweep",
+  "outfile": "runs/mapping/voltage_mapping_out_verify_test_1.csv",
   "num_frames": 1,
   "settling_time": 0.01,
   "resolution": 640,
@@ -33,5 +33,31 @@
     "start_corner": [-170.0, -170.0],
     "end_corner": [170.0, 170.0],
     "step_size": 5.0
+  },
+
+  "verify": {
+    "fit": "grid",
+    "grid_csv": "runs/mapping/voltage_mapping_out_grid_test.csv",
+    "poly_degree": 3
+  },
+
+  "verify_sweep": {
+    "axis": "x",
+    "start_vdiff": -170.0,
+    "end_vdiff": 170.0,
+    "step_size": 1.0,
+    "fit": "sweep",
+    "sweep_csv_x": "runs/mapping/voltage_mapping_out_diagnose_xaxis_st0.01_nocharuco_1.csv",
+    "sweep_csv_y": "runs/mapping/voltage_mapping_out_diagnose_yaxis_st0.01_nocharuco_1.csv",
+    "poly_degree": 3
+  },
+
+  "verify_grid": {
+    "start_corner": [-170.0, -170.0],
+    "end_corner": [170.0, 170.0],
+    "step_size": 5.0,
+    "fit": "grid",
+    "grid_csv": "runs/mapping/reference_grid.csv",
+    "poly_degree": 2
   }
 }

@@ -1,8 +1,21 @@
 """
 Interactive voltage mapping entrypoint with prompt or params-file inputs.
+
+Modes: preview-cam, man, sweep, grid, verify, verify-sweep, verify-grid.
+
+verify: After fitting polynomials from prior mapping CSV(s), enter manual vdiff pairs;
+live centroid → actual x_mm/y_mm vs model expectation; results printed and written to outfile.
+
+verify-sweep: Same polynomial options as verify, but runs an automatic sweep (axis/start/end/step
+like sweep mode). CSV is the sweep CSV plus expected_x, expected_y, difference_x, difference_y
+(board-plane mm; differences are actual − expected, matching column x_mm / y_mm).
+
+verify-grid: Same as verify-sweep, but traverses a full grid (start_corner, end_corner, step_size)
+like grid mode (serpentine x-order per row).
 """
 from __future__ import annotations
 
+import csv
 import json
 import math
 import sys
@@ -10,10 +23,12 @@ import threading
 import time
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Optional
 
 import cv2
+import numpy as np
 
 from src import FSM, centroiding, picam
 from src.constants import VDIFF_MAX_VOLTS, VDIFF_MIN_VOLTS
@@ -27,6 +42,14 @@ DEFAULT_CAL = SCRIPT_DIR / "config" / "camera_params.npz"
 DEFAULT_OUT_DIR = SCRIPT_DIR / "runs" / "mapping"
 DEFAULT_OUTFILE = DEFAULT_OUT_DIR / "voltage_mapping_out.csv"
 PARAMS_FILENAME = "voltage_mapping_params.json"
+
+
+def _resolve_script_path(p: Path) -> Path:
+    return p if p.is_absolute() else (SCRIPT_DIR / p)
+
+
+def _norm_csv_header(name: str) -> str:
+    return name.strip().lower().lstrip("\ufeff")
 
 
 @dataclass
@@ -55,6 +78,12 @@ class RunConfig:
     preview_port: int = 8080
     preview_fps: float = 24.0
     preview_quality: int = 75
+    # verify: polynomial model vs live centroid (board-plane mm)
+    verify_fit: str = "grid"
+    verify_grid_csv: Optional[Path] = None
+    verify_sweep_csv_x: Optional[Path] = None
+    verify_sweep_csv_y: Optional[Path] = None
+    verify_poly_degree: int = 2
 
 
 def _norm_mode(raw: str) -> str:
@@ -68,6 +97,9 @@ def _norm_mode(raw: str) -> str:
         "sweep": "sweep",
         "auto": "sweep",
         "grid": "grid",
+        "verify": "verify",
+        "verify-sweep": "verify-sweep",
+        "verify-grid": "verify-grid",
     }
     if v not in aliases:
         raise ValueError(f"Invalid mode: {raw}")
@@ -169,11 +201,55 @@ def _config_from_params(data: dict[str, Any]) -> RunConfig:
         cfg.grid_end_x = float(end[0])
         cfg.grid_end_y = float(end[1])
         cfg.grid_step_size = float(mode_block.get("step_size", 1.0))
+    elif mode == "verify":
+        cfg.verify_fit = str(mode_block.get("fit", "grid")).strip().lower()
+        g = mode_block.get("grid_csv")
+        cfg.verify_grid_csv = Path(str(g)) if g else None
+        sx = mode_block.get("sweep_csv_x")
+        sy = mode_block.get("sweep_csv_y")
+        cfg.verify_sweep_csv_x = Path(str(sx)) if sx else None
+        cfg.verify_sweep_csv_y = Path(str(sy)) if sy else None
+        cfg.verify_poly_degree = int(mode_block.get("poly_degree", 2))
+    elif mode == "verify-sweep":
+        cfg.axis = str(mode_block.get("axis", "x")).lower()
+        cfg.start_vdiff = float(mode_block.get("start_vdiff", 0.0))
+        cfg.end_vdiff = float(mode_block.get("end_vdiff", 150.0))
+        cfg.step_size = float(mode_block.get("step_size", 1.0))
+        cfg.verify_fit = str(mode_block.get("fit", "grid")).strip().lower()
+        g = mode_block.get("grid_csv")
+        cfg.verify_grid_csv = Path(str(g)) if g else None
+        sx = mode_block.get("sweep_csv_x")
+        sy = mode_block.get("sweep_csv_y")
+        cfg.verify_sweep_csv_x = Path(str(sx)) if sx else None
+        cfg.verify_sweep_csv_y = Path(str(sy)) if sy else None
+        cfg.verify_poly_degree = int(mode_block.get("poly_degree", 2))
+    elif mode == "verify-grid":
+        start = mode_block.get("start_corner", [0.0, 0.0])
+        end = mode_block.get("end_corner", [150.0, 150.0])
+        if not (isinstance(start, list) and len(start) == 2 and isinstance(end, list) and len(end) == 2):
+            raise ValueError("verify_grid.start_corner and end_corner must be [x, y].")
+        cfg.grid_start_x = float(start[0])
+        cfg.grid_start_y = float(start[1])
+        cfg.grid_end_x = float(end[0])
+        cfg.grid_end_y = float(end[1])
+        cfg.grid_step_size = float(mode_block.get("step_size", 1.0))
+        cfg.verify_fit = str(mode_block.get("fit", "grid")).strip().lower()
+        g = mode_block.get("grid_csv")
+        cfg.verify_grid_csv = Path(str(g)) if g else None
+        sx = mode_block.get("sweep_csv_x")
+        sy = mode_block.get("sweep_csv_y")
+        cfg.verify_sweep_csv_x = Path(str(sx)) if sx else None
+        cfg.verify_sweep_csv_y = Path(str(sy)) if sy else None
+        cfg.verify_poly_degree = int(mode_block.get("poly_degree", 2))
     return cfg
 
 
 def _config_from_prompts() -> RunConfig:
-    mode = _norm_mode(_prompt_with_default("Mode (preview-cam | man | sweep | grid)", "man"))
+    mode = _norm_mode(
+        _prompt_with_default(
+            "Mode (preview-cam | man | sweep | grid | verify | verify-sweep | verify-grid)", "man"
+        )
+    )
     cfg = RunConfig(
         mode=mode,
         outfile=Path(_prompt_with_default("Output CSV path", str(DEFAULT_OUTFILE))),
@@ -208,21 +284,277 @@ def _config_from_prompts() -> RunConfig:
         cfg.grid_end_x = _prompt_float("Grid end corner x", 150.0)
         cfg.grid_end_y = _prompt_float("Grid end corner y", 150.0)
         cfg.grid_step_size = _prompt_float("Grid step size", 1.0)
+    elif mode == "verify":
+        cfg.verify_fit = _prompt_with_default("Verify fit source (grid | sweep)", "grid").strip().lower()
+        cfg.verify_poly_degree = _prompt_int("Polynomial degree", 2, minimum=1)
+        if cfg.verify_fit == "grid":
+            cfg.verify_grid_csv = Path(
+                _prompt_with_default("Grid mapping CSV path", str(DEFAULT_OUTFILE))
+            )
+            cfg.verify_sweep_csv_x = None
+            cfg.verify_sweep_csv_y = None
+        elif cfg.verify_fit == "sweep":
+            cfg.verify_sweep_csv_x = Path(
+                _prompt_with_default("X-axis sweep CSV path", str(DEFAULT_OUTFILE))
+            )
+            cfg.verify_sweep_csv_y = Path(
+                _prompt_with_default("Y-axis sweep CSV path", str(DEFAULT_OUTFILE))
+            )
+            cfg.verify_grid_csv = None
+        else:
+            raise ValueError("verify fit must be 'grid' or 'sweep'")
+    elif mode == "verify-sweep":
+        cfg.axis = _prompt_with_default("Sweep axis (x|y)", "x").strip().lower()
+        cfg.start_vdiff = _prompt_float("Sweep start vdiff", 0.0)
+        cfg.end_vdiff = _prompt_float("Sweep end vdiff", 150.0)
+        cfg.step_size = _prompt_float("Sweep step size", 1.0)
+        cfg.verify_fit = _prompt_with_default("Verify fit source (grid | sweep)", "grid").strip().lower()
+        cfg.verify_poly_degree = _prompt_int("Polynomial degree", 2, minimum=1)
+        if cfg.verify_fit == "grid":
+            cfg.verify_grid_csv = Path(
+                _prompt_with_default("Grid mapping CSV path", str(DEFAULT_OUTFILE))
+            )
+            cfg.verify_sweep_csv_x = None
+            cfg.verify_sweep_csv_y = None
+        elif cfg.verify_fit == "sweep":
+            cfg.verify_sweep_csv_x = Path(
+                _prompt_with_default("X-axis sweep CSV path", str(DEFAULT_OUTFILE))
+            )
+            cfg.verify_sweep_csv_y = Path(
+                _prompt_with_default("Y-axis sweep CSV path", str(DEFAULT_OUTFILE))
+            )
+            cfg.verify_grid_csv = None
+        else:
+            raise ValueError("verify fit must be 'grid' or 'sweep'")
+    elif mode == "verify-grid":
+        cfg.grid_start_x = _prompt_float("Grid start corner x", 0.0)
+        cfg.grid_start_y = _prompt_float("Grid start corner y", 0.0)
+        cfg.grid_end_x = _prompt_float("Grid end corner x", 150.0)
+        cfg.grid_end_y = _prompt_float("Grid end corner y", 150.0)
+        cfg.grid_step_size = _prompt_float("Grid step size", 1.0)
+        cfg.verify_fit = _prompt_with_default("Verify fit source (grid | sweep)", "grid").strip().lower()
+        cfg.verify_poly_degree = _prompt_int("Polynomial degree", 2, minimum=1)
+        if cfg.verify_fit == "grid":
+            cfg.verify_grid_csv = Path(
+                _prompt_with_default("Grid mapping CSV path", str(DEFAULT_OUTFILE))
+            )
+            cfg.verify_sweep_csv_x = None
+            cfg.verify_sweep_csv_y = None
+        elif cfg.verify_fit == "sweep":
+            cfg.verify_sweep_csv_x = Path(
+                _prompt_with_default("X-axis sweep CSV path", str(DEFAULT_OUTFILE))
+            )
+            cfg.verify_sweep_csv_y = Path(
+                _prompt_with_default("Y-axis sweep CSV path", str(DEFAULT_OUTFILE))
+            )
+            cfg.verify_grid_csv = None
+        else:
+            raise ValueError("verify fit must be 'grid' or 'sweep'")
     return cfg
 
 
 def _validate_cfg(cfg: RunConfig) -> None:
-    if cfg.mode not in {"preview-cam", "man", "sweep", "grid"}:
+    if cfg.mode not in {"preview-cam", "man", "sweep", "grid", "verify", "verify-sweep", "verify-grid"}:
         raise ValueError(f"Unsupported mode: {cfg.mode}")
-    if cfg.mode == "sweep":
+    if cfg.mode in {"sweep", "verify-sweep"}:
         if cfg.axis not in {"x", "y"}:
             raise ValueError("sweep.axis must be x or y")
         if abs(cfg.step_size) <= 1e-9:
             raise ValueError("sweep.step_size must be non-zero")
-    if cfg.mode == "grid" and abs(cfg.grid_step_size) <= 1e-9:
+    if cfg.mode in {"grid", "verify-grid"} and abs(cfg.grid_step_size) <= 1e-9:
         raise ValueError("grid.step_size must be non-zero")
     if cfg.distance_to_board is not None and cfg.distance_to_board <= 0:
         raise ValueError("distance_to_board must be positive when provided")
+    if cfg.mode == "verify":
+        if cfg.verify_fit not in {"grid", "sweep"}:
+            raise ValueError("verify.fit must be 'grid' or 'sweep'")
+        if cfg.verify_poly_degree < 1:
+            raise ValueError("verify.poly_degree must be >= 1")
+        if cfg.verify_fit == "grid":
+            if cfg.verify_grid_csv is None:
+                raise ValueError("verify.grid_csv is required when fit=grid")
+        else:
+            if cfg.verify_sweep_csv_x is None or cfg.verify_sweep_csv_y is None:
+                raise ValueError("verify.sweep_csv_x and sweep_csv_y are required when fit=sweep")
+        if cfg.no_calib:
+            raise ValueError("verify mode requires calibration with homography H (do not use no_calib)")
+    if cfg.mode == "verify-sweep":
+        if cfg.verify_fit not in {"grid", "sweep"}:
+            raise ValueError("verify-sweep.fit must be 'grid' or 'sweep'")
+        if cfg.verify_poly_degree < 1:
+            raise ValueError("verify-sweep.poly_degree must be >= 1")
+        if cfg.verify_fit == "grid":
+            if cfg.verify_grid_csv is None:
+                raise ValueError("verify-sweep.grid_csv is required when fit=grid")
+        else:
+            if cfg.verify_sweep_csv_x is None or cfg.verify_sweep_csv_y is None:
+                raise ValueError(
+                    "verify-sweep.sweep_csv_x and sweep_csv_y are required when fit=sweep"
+                )
+        if cfg.no_calib:
+            raise ValueError(
+                "verify-sweep requires calibration with homography H (do not use no_calib)"
+            )
+    if cfg.mode == "verify-grid":
+        if cfg.verify_fit not in {"grid", "sweep"}:
+            raise ValueError("verify-grid.fit must be 'grid' or 'sweep'")
+        if cfg.verify_poly_degree < 1:
+            raise ValueError("verify-grid.poly_degree must be >= 1")
+        if cfg.verify_fit == "grid":
+            if cfg.verify_grid_csv is None:
+                raise ValueError("verify-grid.grid_csv is required when fit=grid")
+        else:
+            if cfg.verify_sweep_csv_x is None or cfg.verify_sweep_csv_y is None:
+                raise ValueError(
+                    "verify-grid.sweep_csv_x and sweep_csv_y are required when fit=sweep"
+                )
+        if cfg.no_calib:
+            raise ValueError(
+                "verify-grid requires calibration with homography H (do not use no_calib)"
+            )
+
+
+def _poly_terms_2d_count(degree: int) -> int:
+    return (degree + 1) * (degree + 2) // 2
+
+
+def _design_matrix_2d(vx: np.ndarray, vy: np.ndarray, degree: int) -> np.ndarray:
+    vx = np.asarray(vx, dtype=np.float64).ravel()
+    vy = np.asarray(vy, dtype=np.float64).ravel()
+    cols: list[np.ndarray] = []
+    for sum_deg in range(degree + 1):
+        for i in range(sum_deg + 1):
+            j = sum_deg - i
+            cols.append((vx**i) * (vy**j))
+    return np.column_stack(cols) if cols else np.zeros((len(vx), 0))
+
+
+def _fit_multivariate_poly_mm(
+    vx: np.ndarray, vy: np.ndarray, z_mm: np.ndarray, degree: int
+) -> np.ndarray:
+    a = _design_matrix_2d(vx, vy, degree)
+    coef, _, rank, _ = np.linalg.lstsq(a, np.asarray(z_mm, dtype=np.float64).ravel(), rcond=None)
+    if rank < a.shape[1]:
+        print(
+            "Warning: polynomial design matrix is rank-deficient; fit may be unstable.",
+            file=sys.stderr,
+        )
+    return coef
+
+
+def _predict_multivariate_mm(vx: float, vy: float, coef: np.ndarray, degree: int) -> float:
+    row = _design_matrix_2d(np.array([vx]), np.array([vy]), degree)
+    return float(row @ coef)
+
+
+def _load_mapping_xy_mm_rows(path: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    path = _resolve_script_path(path)
+    if not path.is_file():
+        raise FileNotFoundError(f"CSV not found: {path}")
+    vx_list: list[float] = []
+    vy_list: list[float] = []
+    xm_list: list[float] = []
+    ym_list: list[float] = []
+    with open(path, newline="", encoding="utf-8") as f:
+        reader = csv.reader(f)
+        try:
+            header_raw = next(reader)
+        except StopIteration as exc:
+            raise ValueError(f"Empty CSV: {path}") from exc
+        header = {_norm_csv_header(h): i for i, h in enumerate(header_raw)}
+        req = ("vdiffx", "vdiffy", "x_mm", "y_mm")
+        if not all(k in header for k in req):
+            raise ValueError(f"CSV {path} must have columns: {', '.join(req)}")
+        ix, iy, imx, imy = (header[k] for k in req)
+        for row in reader:
+            if len(row) <= max(ix, iy, imx, imy):
+                continue
+            try:
+                vxa = float(row[ix])
+                vya = float(row[iy])
+                xma = float(row[imx])
+                yma = float(row[imy])
+            except ValueError:
+                continue
+            if not all(math.isfinite(v) for v in (vxa, vya, xma, yma)):
+                continue
+            vx_list.append(vxa)
+            vy_list.append(vya)
+            xm_list.append(xma)
+            ym_list.append(yma)
+    if len(vx_list) < 4:
+        raise ValueError(f"Too few valid data rows in {path}")
+    return (
+        np.array(vx_list, dtype=np.float64),
+        np.array(vy_list, dtype=np.float64),
+        np.array(xm_list, dtype=np.float64),
+        np.array(ym_list, dtype=np.float64),
+    )
+
+
+def _fit_verify_grid_models(path: Path, degree: int) -> tuple[np.ndarray, np.ndarray]:
+    vx, vy, xm, ym = _load_mapping_xy_mm_rows(path)
+    n_terms = _poly_terms_2d_count(degree)
+    if len(vx) < n_terms + 1:
+        raise ValueError(
+            f"Grid CSV has {len(vx)} points; need at least {n_terms + 1} for degree-{degree} "
+            "multivariate fit."
+        )
+    bx = _fit_multivariate_poly_mm(vx, vy, xm, degree)
+    by = _fit_multivariate_poly_mm(vx, vy, ym, degree)
+    return bx, by
+
+
+def _fit_verify_sweep_models(path_x: Path, path_y: Path, degree: int) -> tuple[np.ndarray, np.ndarray]:
+    vx_a, _vy_a, xm_a, _ym_a = _load_mapping_xy_mm_rows(path_x)
+    _vx_b, vy_b, _xm_b, ym_b = _load_mapping_xy_mm_rows(path_y)
+    if len(vx_a) < degree + 1:
+        raise ValueError(f"X sweep CSV has too few rows for degree {degree}")
+    if len(vy_b) < degree + 1:
+        raise ValueError(f"Y sweep CSV has too few rows for degree {degree}")
+    coef_x = np.polyfit(vx_a, xm_a, degree)
+    coef_y = np.polyfit(vy_b, ym_b, degree)
+    return coef_x, coef_y
+
+
+def _make_verify_expected_predictor(cfg: RunConfig) -> Callable[[float, float], tuple[float, float]]:
+    """
+    Same polynomial features and evaluation as verify mode: (vdiffx, vdiffy) -> expected (x_mm, y_mm).
+    Prints a short fit summary to stdout.
+    """
+    deg = cfg.verify_poly_degree
+    if cfg.verify_fit == "grid":
+        if cfg.verify_grid_csv is None:
+            raise ValueError("grid_csv required for grid fit")
+        p = _resolve_script_path(cfg.verify_grid_csv)
+        grid_bx, grid_by = _fit_verify_grid_models(cfg.verify_grid_csv, deg)
+        print(
+            f"[VERIFY] Grid multivariate fit (x_mm,y_mm ~ f(vdiffx,vdiffy)), degree={deg}, from {p}"
+        )
+
+        def pred(vx: float, vy: float) -> tuple[float, float]:
+            return (
+                _predict_multivariate_mm(vx, vy, grid_bx, deg),
+                _predict_multivariate_mm(vx, vy, grid_by, deg),
+            )
+
+        return pred
+
+    if cfg.verify_sweep_csv_x is None or cfg.verify_sweep_csv_y is None:
+        raise ValueError("sweep_csv_x and sweep_csv_y required for sweep fit")
+    px = _resolve_script_path(cfg.verify_sweep_csv_x)
+    py = _resolve_script_path(cfg.verify_sweep_csv_y)
+    sweep_cx, sweep_cy = _fit_verify_sweep_models(cfg.verify_sweep_csv_x, cfg.verify_sweep_csv_y, deg)
+    print(
+        f"[VERIFY] Sweep fits: x_mm ~ poly(vdiffx), y_mm ~ poly(vdiffy), degree={deg}\n"
+        f"         x data: {px}\n"
+        f"         y data: {py}"
+    )
+
+    def pred(vx: float, vy: float) -> tuple[float, float]:
+        return float(np.polyval(sweep_cx, vx)), float(np.polyval(sweep_cy, vy))
+
+    return pred
 
 
 def _open_camera(resolution: int):
@@ -399,13 +731,13 @@ def _start_vdiff_for_mode(cfg: RunConfig) -> tuple[float, float]:
     """Compute the first commanded (vdiffx, vdiffy) point for each measurement mode."""
     if cfg.mode == "man":
         return float(cfg.manual_x), float(cfg.manual_y)
-    if cfg.mode == "sweep":
+    if cfg.mode in {"sweep", "verify-sweep"}:
         if cfg.axis == "x":
             return float(cfg.start_vdiff), 0.0
         if cfg.axis == "y":
             return 0.0, float(cfg.start_vdiff)
         raise ValueError("sweep.axis must be x or y")
-    if cfg.mode == "grid":
+    if cfg.mode in {"grid", "verify-grid"}:
         return float(cfg.grid_start_x), float(cfg.grid_start_y)
     raise ValueError(f"Unsupported measurement mode for startup positioning: {cfg.mode}")
 
@@ -445,6 +777,32 @@ def _augment_rows_with_angles(
         theta_x = math.degrees(math.atan2(x_mm, distance_to_board))
         theta_y = math.degrees(math.atan2(y_mm, distance_to_board))
         out_rows.append([*row, theta_x, theta_y])
+    return out_rows, out_header
+
+
+def _rows_with_verify_columns(
+    rows: list[list[Any]],
+    header: list[str],
+    expected_mm: Callable[[float, float], tuple[float, float]],
+) -> tuple[list[list[Any]], list[str]]:
+    """Append expected_x, expected_y, difference_x, difference_y (mm; diff = actual − expected)."""
+    hdr = list(header)
+    need = ("vdiffx", "vdiffy", "x_mm", "y_mm")
+    if not all(k in hdr for k in need):
+        raise ValueError(f"Rows must include columns {need} (homography calibration).")
+    ix_vx = hdr.index("vdiffx")
+    ix_vy = hdr.index("vdiffy")
+    ix_xm = hdr.index("x_mm")
+    ix_ym = hdr.index("y_mm")
+    out_header = [*hdr, "expected_x", "expected_y", "difference_x", "difference_y"]
+    out_rows: list[list[Any]] = []
+    for row in rows:
+        vx = float(row[ix_vx])
+        vy = float(row[ix_vy])
+        ax = float(row[ix_xm])
+        ay = float(row[ix_ym])
+        ex, ey = expected_mm(vx, vy)
+        out_rows.append([*row, ex, ey, ax - ex, ay - ey])
     return out_rows, out_header
 
 
@@ -524,6 +882,167 @@ def _run_grid_mode(cfg: RunConfig, mapper: MappingService, fsm: FSM, cam: Any, c
     return 0
 
 
+def _run_verify_mode(cfg: RunConfig, mapper: MappingService, fsm: FSM, cam: Any, calib) -> int:
+    """Manual vdiff positions vs polynomial expectations from prior mapping CSV(s)."""
+    if calib is None or calib.H is None:
+        print("verify mode requires camera calibration with homography H (x_mm / y_mm).", file=sys.stderr)
+        return 1
+
+    expected_mm = _make_verify_expected_predictor(cfg)
+
+    out_header = [
+        "vdiffx",
+        "vdiffy",
+        "expected_x_mm",
+        "expected_y_mm",
+        "actual_x_mm",
+        "actual_y_mm",
+        "err_x_mm",
+        "err_y_mm",
+        "cx_ud_px",
+        "cy_ud_px",
+    ]
+    rows_out: list[list[Any]] = []
+
+    print("[VERIFY] Enter vdiff pairs like manual mode: '<vdiffx> <vdiffy>' or q to quit.")
+    print("[VERIFY] Expected vs actual are board-plane mm from homography (same as mapping CSV).")
+
+    try:
+        while True:
+            usr = input("vdiffx vdiffy (or q): ").strip()
+            if usr.lower() in {"q", "quit", "exit"}:
+                break
+            parts = usr.split()
+            if len(parts) != 2:
+                print("Expected two numbers: vdiffx vdiffy", file=sys.stderr)
+                continue
+            try:
+                vx_cmd = float(parts[0])
+                vy_cmd = float(parts[1])
+                fsm.set_vdiff(vx_cmd, vy_cmd)
+            except ValueError:
+                print("Bad numbers.", file=sys.stderr)
+                continue
+            except UnsafeVoltageRequest as exc:
+                print(f"Unsafe: {exc}", file=sys.stderr)
+                continue
+
+            if cfg.settling_time > 0:
+                time.sleep(cfg.settling_time)
+
+            centroid = mapper.capture_centroid_averages(cam, cfg.num_frames, cfg.roi, calib)
+            vx_act, vy_act = fsm.get_voltages()
+            exp_x, exp_y = expected_mm(float(vx_act), float(vy_act))
+
+            if len(centroid) < 4 or any(not math.isfinite(centroid[i]) for i in range(4)):
+                print("[VERIFY] No valid centroid this sample; skipping CSV row.", file=sys.stderr)
+                continue
+
+            cx_ud, cy_ud, ax_mm, ay_mm = (float(centroid[0]), float(centroid[1]), float(centroid[2]), float(centroid[3]))
+            err_x = ax_mm - exp_x
+            err_y = ay_mm - exp_y
+            print(
+                f"[VERIFY] vdiff=({vx_act:.4f},{vy_act:.4f}) mm exp=({exp_x:.6f},{exp_y:.6f}) "
+                f"act=({ax_mm:.6f},{ay_mm:.6f}) err=({err_x:.6f},{err_y:.6f})"
+            )
+            rows_out.append(
+                [
+                    vx_act,
+                    vy_act,
+                    exp_x,
+                    exp_y,
+                    ax_mm,
+                    ay_mm,
+                    err_x,
+                    err_y,
+                    cx_ud,
+                    cy_ud,
+                ]
+            )
+    except KeyboardInterrupt:
+        print("\nInterrupted; writing verify CSV if any rows.")
+
+    outfile = _resolve_script_path(cfg.outfile)
+    mapper.write_csv(outfile, rows_out, out_header, mode="w")
+    print(f"Wrote {outfile} ({len(rows_out)} rows)")
+    return 0
+
+
+def _run_verify_sweep_mode(cfg: RunConfig, mapper: MappingService, fsm: FSM, cam: Any, calib) -> int:
+    """Automatic sweep with polynomial expectation columns (same sweep CSV shape + verify extras)."""
+    if calib is None or calib.H is None:
+        print(
+            "verify-sweep requires camera calibration with homography H (x_mm / y_mm).",
+            file=sys.stderr,
+        )
+        return 1
+
+    expected_mm = _make_verify_expected_predictor(cfg)
+
+    params = MappingSweepParams(
+        num_frames=cfg.num_frames,
+        settling_time=cfg.settling_time,
+        axis=cfg.axis,
+        step_size=cfg.step_size,
+        start=cfg.start_vdiff,
+        end=cfg.end_vdiff,
+        roi=cfg.roi,
+    )
+    rows = mapper.run_auto_sweep(fsm, cam, params, calib)
+    header = list(mapper.csv_header(calib))
+    rows, header = _augment_rows_with_angles(rows, header, cfg.distance_to_board)
+    try:
+        out_rows, out_header = _rows_with_verify_columns(rows, header, expected_mm)
+    except ValueError as exc:
+        print(f"verify-sweep: {exc}", file=sys.stderr)
+        return 1
+
+    outfile = _resolve_script_path(cfg.outfile)
+    mapper.write_csv(outfile, out_rows, out_header, mode="w")
+    print(f"[VERIFY-SWEEP] Wrote {outfile} ({len(out_rows)} rows)")
+    return 0
+
+
+def _run_verify_grid_mode(cfg: RunConfig, mapper: MappingService, fsm: FSM, cam: Any, calib) -> int:
+    """Automatic grid traversal with polynomial expectation columns (same grid CSV shape + verify extras)."""
+    if calib is None or calib.H is None:
+        print(
+            "verify-grid requires camera calibration with homography H (x_mm / y_mm).",
+            file=sys.stderr,
+        )
+        return 1
+
+    expected_mm = _make_verify_expected_predictor(cfg)
+
+    step_x = cfg.grid_step_size if cfg.grid_end_x >= cfg.grid_start_x else -cfg.grid_step_size
+    step_y = cfg.grid_step_size if cfg.grid_end_y >= cfg.grid_start_y else -cfg.grid_step_size
+    xs = _axis_points(cfg.grid_start_x, cfg.grid_end_x, step_x)
+    ys = _axis_points(cfg.grid_start_y, cfg.grid_end_y, step_y)
+
+    rows: list[list[Any]] = []
+    for yi, yv in enumerate(ys):
+        x_seq = xs if yi % 2 == 0 else list(reversed(xs))
+        for xv in x_seq:
+            fsm.set_vdiff(xv, yv)
+            centroid = mapper.capture_centroid_averages(cam, cfg.num_frames, cfg.roi, calib)
+            vx, vy = fsm.get_voltages()
+            rows.append([vx, vy, *centroid])
+            time.sleep(cfg.settling_time)
+
+    header = list(mapper.csv_header(calib))
+    rows, header = _augment_rows_with_angles(rows, header, cfg.distance_to_board)
+    try:
+        out_rows, out_header = _rows_with_verify_columns(rows, header, expected_mm)
+    except ValueError as exc:
+        print(f"verify-grid: {exc}", file=sys.stderr)
+        return 1
+
+    outfile = _resolve_script_path(cfg.outfile)
+    mapper.write_csv(outfile, out_rows, out_header, mode="w")
+    print(f"[VERIFY-GRID] Wrote {outfile} ({len(out_rows)} rows)")
+    return 0
+
+
 def _run_measurement_mode(cfg: RunConfig) -> int:
     mapper = MappingService()
     calib: centroiding.CameraCalibration | None = None
@@ -537,13 +1056,20 @@ def _run_measurement_mode(cfg: RunConfig) -> int:
         if not result.ok:
             print("FSM failed to start or was aborted.", file=sys.stderr)
             return 1
-        _position_to_start(cfg, fsm)
+        if cfg.mode != "verify":
+            _position_to_start(cfg, fsm)
         if cfg.mode == "man":
             return _run_man_mode(cfg, mapper, fsm, cam, calib)
         if cfg.mode == "sweep":
             return _run_sweep_mode(cfg, mapper, fsm, cam, calib)
         if cfg.mode == "grid":
             return _run_grid_mode(cfg, mapper, fsm, cam, calib)
+        if cfg.mode == "verify":
+            return _run_verify_mode(cfg, mapper, fsm, cam, calib)
+        if cfg.mode == "verify-sweep":
+            return _run_verify_sweep_mode(cfg, mapper, fsm, cam, calib)
+        if cfg.mode == "verify-grid":
+            return _run_verify_grid_mode(cfg, mapper, fsm, cam, calib)
         raise ValueError(f"Unsupported measurement mode: {cfg.mode}")
     finally:
         try:
