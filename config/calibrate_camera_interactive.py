@@ -29,7 +29,15 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from src import picam
-import calibrate_picam
+
+# Package import when loaded as config.calibrate_camera_interactive; same-dir when run as a script.
+if __package__ in (None, ""):
+    _CFG = Path(__file__).resolve().parent
+    if str(_CFG) not in sys.path:
+        sys.path.insert(0, str(_CFG))
+    import calibrate_picam  # sibling module when run as script (not as package)
+else:
+    from . import calibrate_picam
 
 _CONFIG_DIR = Path(__file__).resolve().parent
 _SAVE_DIR = _CONFIG_DIR / "calib_images"

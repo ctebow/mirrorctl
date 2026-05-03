@@ -35,6 +35,28 @@ import cv2
 from flask import Flask, Response, render_template_string, jsonify
 
 
+# #region agent log
+def _agent_log(location: str, message: str, data: dict, hypothesis_id: str) -> None:
+    import json as _json
+
+    try:
+        rec = {
+            "sessionId": "851f46",
+            "timestamp": int(time.time() * 1000),
+            "location": location,
+            "message": message,
+            "data": data,
+            "hypothesisId": hypothesis_id,
+        }
+        with open("/home/ctebow/pulse-a/mirrorctl/.cursor/debug-851f46.log", "a", encoding="utf-8") as _f:
+            _f.write(_json.dumps(rec) + "\n")
+    except Exception:
+        pass
+
+
+# #endregion
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Configuration  (edit freely)
 # ──────────────────────────────────────────────────────────────────────────────
@@ -273,12 +295,52 @@ def _index():
 def _video_feed():
     """MJPEG stream — delivers whatever the latest processed frame is."""
     def generate():
-        last_sent = None
+        # #region agent log
+        _agent_log(
+            "picam_qpd_centroid.py:_video_feed",
+            "mjpeg_client_connected",
+            {},
+            "H4",
+        )
+        # #endregion
+        # Re-yield on new captures (stats frame id) and periodically for the same JPEG so
+        # browsers keep decoding MJPEG between slow step-mode captures (same bytes object).
+        _MJPEG_REPEAT_S = 0.12
+        _no_frame = 0
+        _last_yielded_fc = -1
+        _last_yield_mono = 0.0
+        _keepalive_n = 0
         while True:
             with _frame_lock:
                 frame = _latest_jpeg
-            if frame and frame is not last_sent:
-                last_sent = frame
+                fc = int(_latest_stats.get("frame", 0))
+            now = time.monotonic()
+            should_yield = (
+                frame
+                and fc > 0
+                and (fc != _last_yielded_fc or (now - _last_yield_mono) >= _MJPEG_REPEAT_S)
+            )
+            if should_yield:
+                reason = "new_fc" if fc != _last_yielded_fc else "keepalive"
+                _last_yielded_fc = fc
+                _last_yield_mono = now
+                if reason == "keepalive":
+                    _keepalive_n += 1
+                # #region agent log
+                if reason == "new_fc" or _keepalive_n <= 3 or _keepalive_n % 50 == 0:
+                    _agent_log(
+                        "picam_qpd_centroid.py:_video_feed",
+                        "mjpeg_yield",
+                        {
+                            "frame_counter": fc,
+                            "jpeg_len": len(frame),
+                            "id_frame": id(frame),
+                            "reason": reason,
+                            "keepalive_n": _keepalive_n,
+                        },
+                        "H2",
+                    )
+                # #endregion
                 yield (
                     b"--frame\r\n"
                     b"Content-Type: image/jpeg\r\n\r\n"
@@ -286,6 +348,17 @@ def _video_feed():
                     b"\r\n"
                 )
             else:
+                if frame is None:
+                    _no_frame += 1
+                    if _no_frame <= 3 or _no_frame % 200 == 0:
+                        # #region agent log
+                        _agent_log(
+                            "picam_qpd_centroid.py:_video_feed",
+                            "mjpeg_wait_no_jpeg",
+                            {"no_frame_iters": _no_frame},
+                            "H1",
+                        )
+                        # #endregion
                 time.sleep(0.01)
 
     return Response(
@@ -350,6 +423,12 @@ def start_camera_server(host: str = FLASK_HOST, port: int = FLASK_PORT) -> None:
     threading.Thread(target=_run, daemon=True, name="qpd-flask").start()
     print(f"[QPD] Web server started → http://<rpi-ip>:{port}")
 
+    # Prime one processed JPEG so /video_feed can serve immediately (step mode waits on stdin).
+    try:
+        get_centroid_err()
+    except Exception as exc:
+        print(f"[QPD] Warning: could not prime first frame for web UI: {exc}")
+
 
 def get_centroid_err() -> tuple[float, float]:
     """Capture one frame and return the normalised (x_err, y_err) beam position error.
@@ -382,6 +461,19 @@ def get_centroid_err() -> tuple[float, float]:
     combined = _build_combined_frame(square, U_A, U_B, U_C, U_D, x, y)
     ok, jpeg_buf = cv2.imencode(".jpg", combined, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
 
+    # #region agent log
+    _agent_log(
+        "picam_qpd_centroid.py:get_centroid_err",
+        "imencode_result",
+        {
+            "ok": bool(ok),
+            "frame_counter": int(_frame_counter),
+            "combined_shape": list(combined.shape) if combined is not None else None,
+        },
+        "H3",
+    )
+    # #endregion
+
     if ok:
         with _frame_lock:
             _latest_jpeg  = jpeg_buf.tobytes()
@@ -390,6 +482,14 @@ def get_centroid_err() -> tuple[float, float]:
                 "U_A": U_A, "U_B": U_B, "U_C": U_C, "U_D": U_D,
                 "x": round(x, 6), "y": round(y, 6),
             }
+        # #region agent log
+        _agent_log(
+            "picam_qpd_centroid.py:get_centroid_err",
+            "jpeg_published",
+            {"frame_counter": int(_frame_counter), "jpeg_len": len(_latest_jpeg), "id_jpeg": id(_latest_jpeg)},
+            "H1",
+        )
+        # #endregion
 
     return x, y
 

@@ -1,8 +1,8 @@
 {
-  "mode": "sweep",
-  "outfile": "runs/mapping/voltage_mapping_out.csv",
-  "num_frames": 5,
-  "settling_time": 0.1,
+  "mode": "grid",
+  "outfile": "runs/mapping/voltage_mapping_out_grid_test.csv",
+  "num_frames": 1,
+  "settling_time": 0.01,
   "resolution": 640,
   "roi": 50,
   "no_calib": false,
@@ -23,15 +23,15 @@
   },
 
   "sweep": {
-    "axis": "x",
-    "start_vdiff": 0.0,
-    "end_vdiff": 120.0,
-    "step_size": 2.0
+    "axis": "y",
+    "start_vdiff": -170.0,
+    "end_vdiff": 170.0,
+    "step_size": 1.0
   },
 
   "grid": {
-    "start_corner": [0.0, 0.0],
-    "end_corner": [120.0, 120.0],
+    "start_corner": [-170.0, -170.0],
+    "end_corner": [170.0, 170.0],
     "step_size": 5.0
   }
 }
