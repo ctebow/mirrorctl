@@ -395,6 +395,32 @@ def _axis_points(start: float, end: float, step: float) -> list[float]:
     return vals
 
 
+def _start_vdiff_for_mode(cfg: RunConfig) -> tuple[float, float]:
+    """Compute the first commanded (vdiffx, vdiffy) point for each measurement mode."""
+    if cfg.mode == "man":
+        return float(cfg.manual_x), float(cfg.manual_y)
+    if cfg.mode == "sweep":
+        if cfg.axis == "x":
+            return float(cfg.start_vdiff), 0.0
+        if cfg.axis == "y":
+            return 0.0, float(cfg.start_vdiff)
+        raise ValueError("sweep.axis must be x or y")
+    if cfg.mode == "grid":
+        return float(cfg.grid_start_x), float(cfg.grid_start_y)
+    raise ValueError(f"Unsupported measurement mode for startup positioning: {cfg.mode}")
+
+
+def _position_to_start(cfg: RunConfig, fsm: FSM) -> None:
+    """
+    Move the mirror to the first mapping coordinate and allow settling before capture.
+    """
+    vx0, vy0 = _start_vdiff_for_mode(cfg)
+    print(f"[STARTUP] moving to start vdiff=({vx0}, {vy0})")
+    fsm.set_vdiff(vx0, vy0)
+    if cfg.settling_time > 0:
+        time.sleep(cfg.settling_time)
+
+
 def _augment_rows_with_angles(
     rows: list[list[Any]],
     header: list[str],
@@ -425,9 +451,8 @@ def _augment_rows_with_angles(
 def _run_man_mode(cfg: RunConfig, mapper: MappingService, fsm: FSM, cam: Any, calib) -> int:
     rows: list[list[Any]] = []
     print("[MAN] Type 'q' to stop and write CSV.")
-    print(f"[MAN] initial command vdiff=({cfg.manual_x}, {cfg.manual_y})")
+    print(f"[MAN] start position vdiff=({cfg.manual_x}, {cfg.manual_y})")
     try:
-        fsm.set_vdiff(cfg.manual_x, cfg.manual_y)
         while True:
             usr = input("Input vdiffx vdiffy (or q): ").strip()
             if usr.lower() in {"q", "quit", "exit"}:
@@ -512,6 +537,7 @@ def _run_measurement_mode(cfg: RunConfig) -> int:
         if not result.ok:
             print("FSM failed to start or was aborted.", file=sys.stderr)
             return 1
+        _position_to_start(cfg, fsm)
         if cfg.mode == "man":
             return _run_man_mode(cfg, mapper, fsm, cam, calib)
         if cfg.mode == "sweep":
