@@ -9,6 +9,13 @@ Interactive flow: aim laser at spot 1 → Enter → capture; move to spot 2 → 
 Requires camera_params.npz with homography H (run calibrate_picam with
 --homography-ref or --update-homography). Without H, pixel displacement is not
 physical mm on the board.
+
+Run from repo root:
+
+    python3 tools/diagnose_camera_distance.py
+
+Printed distances go to stdout; optional annotated snapshots via --spot1-image /
+--spot2-image are written to the paths you pass.
 """
 from __future__ import annotations
 
@@ -18,12 +25,15 @@ import sys
 import time
 from pathlib import Path
 
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
 import cv2
 import numpy as np
 
 from src import centroiding, picam
 
-_REPO_ROOT = Path(__file__).resolve().parents[1]
 _DEFAULT_CAL = _REPO_ROOT / "config" / "camera_params.npz"
 
 

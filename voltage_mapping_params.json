@@ -1,6 +1,6 @@
 {
-  "mode": "grid",
-  "outfile": "runs/mapping/voltage_mapping_out_grid_test.csv",
+  "mode": "sweep",
+  "outfile": "runs/mapping/voltage_mapping_out_diagnose_yaxis_3.csv",
   "num_frames": 1,
   "settling_time": 0.01,
   "resolution": 640,
