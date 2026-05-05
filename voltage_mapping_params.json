@@ -1,9 +1,9 @@
 {
   "mode": "sweep",
-  "outfile": "runs/mapping/voltage_mapping_out_calibration_22mm_xaxis_st0.01_nocharuco_roi20_1.csv",
+  "outfile": "runs/mapping/voltage_mapping_out_calibration_22mm_xaxis_st0.01_nocharuco_roi20_hirez_1.csv",
   "num_frames": 1,
   "settling_time": 0.01,
-  "resolution": 640,
+  "resolution": 1280,
   "roi": 20,
   "no_calib": false,
   "calibration_path": "config/camera_params.npz",
