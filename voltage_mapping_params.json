@@ -1,6 +1,6 @@
 {
   "mode": "verify-sweep",
-  "outfile": "runs/mapping/voltage_mapping_out_verify_test_1.csv",
+  "outfile": "runs/mapping/voltage_mapping_out_diagnose_xaxis_st0.01_nocharuco_centroid2_1.csv",
   "num_frames": 1,
   "settling_time": 0.01,
   "resolution": 640,
@@ -23,7 +23,7 @@
   },
 
   "sweep": {
-    "axis": "y",
+    "axis": "x",
     "start_vdiff": -170.0,
     "end_vdiff": 170.0,
     "step_size": 1.0
@@ -42,7 +42,7 @@
   },
 
   "verify_sweep": {
-    "axis": "x",
+    "axis": "y",
     "start_vdiff": -170.0,
     "end_vdiff": 170.0,
     "step_size": 1.0,
