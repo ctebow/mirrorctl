@@ -1,7 +1,7 @@
 """
 Interactive voltage mapping entrypoint with prompt or params-file inputs.
 
-Modes: preview-cam, man, sweep, grid, verify, verify-sweep, verify-grid.
+Modes: preview-cam, man, sweep, sweep-raw, grid, verify, verify-sweep, verify-grid.
 
 verify: After fitting polynomials from prior mapping CSV(s), enter manual vdiff pairs;
 live centroid → actual x_mm/y_mm vs model expectation; results printed and written to outfile.
@@ -100,6 +100,8 @@ def _norm_mode(raw: str) -> str:
         "manual": "man",
         "sweep": "sweep",
         "auto": "sweep",
+        "sweep-raw": "sweep-raw",
+        "sweep_raw": "sweep-raw",
         "grid": "grid",
         "verify": "verify",
         "verify-sweep": "verify-sweep",
@@ -195,6 +197,11 @@ def _config_from_params(data: dict[str, Any]) -> RunConfig:
         cfg.start_vdiff = float(mode_block.get("start_vdiff", 0.0))
         cfg.end_vdiff = float(mode_block.get("end_vdiff", 150.0))
         cfg.step_size = float(mode_block.get("step_size", 1.0))
+    elif mode == "sweep-raw":
+        cfg.axis = str(mode_block.get("axis", "x")).lower()
+        cfg.start_vdiff = float(mode_block.get("start_vdiff", 0.0))
+        cfg.end_vdiff = float(mode_block.get("end_vdiff", 150.0))
+        cfg.step_size = float(mode_block.get("step_size", 1.0))
     elif mode == "grid":
         start = mode_block.get("start_corner", [0.0, 0.0])
         end = mode_block.get("end_corner", [150.0, 150.0])
@@ -251,7 +258,8 @@ def _config_from_params(data: dict[str, Any]) -> RunConfig:
 def _config_from_prompts() -> RunConfig:
     mode = _norm_mode(
         _prompt_with_default(
-            "Mode (preview-cam | man | sweep | grid | verify | verify-sweep | verify-grid)", "man"
+            "Mode (preview-cam | man | sweep | sweep-raw | grid | verify | verify-sweep | verify-grid)",
+            "man",
         )
     )
     cfg = RunConfig(
@@ -282,6 +290,11 @@ def _config_from_prompts() -> RunConfig:
         cfg.manual_x = _prompt_float("Initial vdiff x", 0.0)
         cfg.manual_y = _prompt_float("Initial vdiff y", 0.0)
     elif mode == "sweep":
+        cfg.axis = _prompt_with_default("Sweep axis (x|y)", "x").strip().lower()
+        cfg.start_vdiff = _prompt_float("Sweep start vdiff", 0.0)
+        cfg.end_vdiff = _prompt_float("Sweep end vdiff", 150.0)
+        cfg.step_size = _prompt_float("Sweep step size", 1.0)
+    elif mode == "sweep-raw":
         cfg.axis = _prompt_with_default("Sweep axis (x|y)", "x").strip().lower()
         cfg.start_vdiff = _prompt_float("Sweep start vdiff", 0.0)
         cfg.end_vdiff = _prompt_float("Sweep end vdiff", 150.0)
@@ -362,9 +375,18 @@ def _config_from_prompts() -> RunConfig:
 
 
 def _validate_cfg(cfg: RunConfig) -> None:
-    if cfg.mode not in {"preview-cam", "man", "sweep", "grid", "verify", "verify-sweep", "verify-grid"}:
+    if cfg.mode not in {
+        "preview-cam",
+        "man",
+        "sweep",
+        "sweep-raw",
+        "grid",
+        "verify",
+        "verify-sweep",
+        "verify-grid",
+    }:
         raise ValueError(f"Unsupported mode: {cfg.mode}")
-    if cfg.mode in {"sweep", "verify-sweep"}:
+    if cfg.mode in {"sweep", "sweep-raw", "verify-sweep"}:
         if cfg.axis not in {"x", "y"}:
             raise ValueError("sweep.axis must be x or y")
         if abs(cfg.step_size) <= 1e-9:
@@ -739,7 +761,7 @@ def _start_vdiff_for_mode(cfg: RunConfig) -> tuple[float, float]:
     """Compute the first commanded (vdiffx, vdiffy) point for each measurement mode."""
     if cfg.mode == "man":
         return float(cfg.manual_x), float(cfg.manual_y)
-    if cfg.mode in {"sweep", "verify-sweep"}:
+    if cfg.mode in {"sweep", "sweep-raw", "verify-sweep"}:
         if cfg.axis == "x":
             return float(cfg.start_vdiff), 0.0
         if cfg.axis == "y":
@@ -861,6 +883,25 @@ def _run_sweep_mode(cfg: RunConfig, mapper: MappingService, fsm: FSM, cam: Any, 
     )
     rows = mapper.run_auto_sweep(fsm, cam, params, calib)
     header = mapper.csv_header(calib)
+    rows, header = _augment_rows_with_angles(rows, header, cfg.distance_to_board)
+    mapper.write_csv(cfg.outfile, rows, header, mode="w")
+    print(f"Wrote {cfg.outfile} ({len(rows)} rows)")
+    return 0
+
+
+def _run_sweep_raw_mode(cfg: RunConfig, mapper: MappingService, fsm: FSM, cam: Any, calib) -> int:
+    """Sweep mode with additional cx_raw, cy_raw columns (before lens undistort) when calib is loaded."""
+    params = MappingSweepParams(
+        num_frames=cfg.num_frames,
+        settling_time=cfg.settling_time,
+        axis=cfg.axis,
+        step_size=cfg.step_size,
+        start=cfg.start_vdiff,
+        end=cfg.end_vdiff,
+        roi=cfg.roi,
+    )
+    rows = mapper.run_auto_sweep_with_raw(fsm, cam, params, calib)
+    header = mapper.csv_header_sweep_with_raw(calib)
     rows, header = _augment_rows_with_angles(rows, header, cfg.distance_to_board)
     mapper.write_csv(cfg.outfile, rows, header, mode="w")
     print(f"Wrote {cfg.outfile} ({len(rows)} rows)")
@@ -1070,6 +1111,8 @@ def _run_measurement_mode(cfg: RunConfig) -> int:
             return _run_man_mode(cfg, mapper, fsm, cam, calib)
         if cfg.mode == "sweep":
             return _run_sweep_mode(cfg, mapper, fsm, cam, calib)
+        if cfg.mode == "sweep-raw":
+            return _run_sweep_raw_mode(cfg, mapper, fsm, cam, calib)
         if cfg.mode == "grid":
             return _run_grid_mode(cfg, mapper, fsm, cam, calib)
         if cfg.mode == "verify":

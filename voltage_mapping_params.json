@@ -1,9 +1,9 @@
 {
-  "mode": "sweep",
-  "outfile": "runs/mapping/voltage_mapping_out_calibration_22mm_xaxis_st0.01_nocharuco_roi20_hirez_1.csv",
+  "mode": "sweep_raw",
+  "outfile": "runs/mapping/voltage_mapping_out_calibration_RAW_1.csv",
   "num_frames": 1,
   "settling_time": 0.01,
-  "resolution": 1280,
+  "resolution": 640,
   "roi": 20,
   "no_calib": false,
   "calibration_path": "config/camera_params.npz",
@@ -23,6 +23,14 @@
   },
 
   "sweep": {
+    "axis": "x",
+    "start_vdiff": -170.0,
+    "end_vdiff": 170.0,
+    "step_size": 1.0
+  },
+
+  "sweep_raw": {
+    "note": "Same as sweep but CSV includes cx_raw, cy_raw (distorted) before cx_ud_px / x_mm.",
     "axis": "x",
     "start_vdiff": -170.0,
     "end_vdiff": 170.0,
