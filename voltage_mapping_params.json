@@ -1,10 +1,10 @@
 {
-  "mode": "verify-sweep",
-  "outfile": "runs/mapping/voltage_mapping_out_diagnose_xaxis_st0.01_nocharuco_centroid2_1.csv",
+  "mode": "sweep",
+  "outfile": "runs/mapping/voltage_mapping_out_calibration_22mm_xaxis_st0.01_nocharuco_roi20_1.csv",
   "num_frames": 1,
   "settling_time": 0.01,
   "resolution": 640,
-  "roi": 50,
+  "roi": 20,
   "no_calib": false,
   "calibration_path": "config/camera_params.npz",
   "distance_to_board": 200.0,

@@ -5,8 +5,17 @@ from typing import Optional, Tuple, Union
 import cv2
 import numpy as np
 
+from src.constants import (
+    LASER_CENTROID_INTENSITY_THRESHOLD,
+    LASER_CENTROID_THRESHOLD_ENABLED,
+)
 
-def find_laser_centroid(gray, roi_size=50) -> Optional[Tuple[float, float]]:
+
+def find_laser_centroid(
+    gray,
+    roi_size=50,
+    threshold: Optional[float] = None,
+) -> Optional[Tuple[float, float]]:
     """
     Return global coords of laser centroid on the given grayscale image
     (raw or already undistorted).
@@ -26,6 +35,10 @@ def find_laser_centroid(gray, roi_size=50) -> Optional[Tuple[float, float]]:
 
     ys, xs = np.indices(roi.shape)
     weights = roi.astype(np.float32)
+    if threshold is None and LASER_CENTROID_THRESHOLD_ENABLED:
+        threshold = float(LASER_CENTROID_INTENSITY_THRESHOLD)
+    if threshold is not None:
+        weights[weights < float(threshold)] = 0.0
 
     total = np.sum(weights)
     if total == 0:

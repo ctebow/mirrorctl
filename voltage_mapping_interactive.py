@@ -31,7 +31,11 @@ import cv2
 import numpy as np
 
 from src import FSM, centroiding, picam
-from src.constants import VDIFF_MAX_VOLTS, VDIFF_MIN_VOLTS
+from src.constants import (
+    CAMERA_DEFAULT_WIDTH,
+    VDIFF_MAX_VOLTS,
+    VDIFF_MIN_VOLTS,
+)
 from src.exceptions import CalibrationError, HardwareUnavailable, UnsafeVoltageRequest
 from services import CalibrationService, MappingService, MappingSweepParams
 from config import calibrate_camera_interactive, calibrate_picam
@@ -58,7 +62,7 @@ class RunConfig:
     outfile: Path
     num_frames: int = 5
     settling_time: float = 0.1
-    resolution: int = 640
+    resolution: int = CAMERA_DEFAULT_WIDTH
     roi: int = 50
     axis: str = "x"
     start_vdiff: float = 0.0
@@ -170,7 +174,7 @@ def _config_from_params(data: dict[str, Any]) -> RunConfig:
         outfile=Path(str(data.get("outfile", str(DEFAULT_OUTFILE)))),
         num_frames=int(data.get("num_frames", 5)),
         settling_time=float(data.get("settling_time", 0.1)),
-        resolution=int(data.get("resolution", 640)),
+        resolution=int(data.get("resolution", CAMERA_DEFAULT_WIDTH)),
         roi=int(data.get("roi", 50)),
         no_calib=bool(data.get("no_calib", False)),
         calibration_path=Path(str(data.get("calibration_path", str(DEFAULT_CAL)))),
@@ -255,7 +259,11 @@ def _config_from_prompts() -> RunConfig:
         outfile=Path(_prompt_with_default("Output CSV path", str(DEFAULT_OUTFILE))),
         num_frames=_prompt_int("Frames per measurement", 5, minimum=1),
         settling_time=_prompt_float("Settling time (seconds)", 0.1, minimum=0.0),
-        resolution=_prompt_int("Camera width (height fixed to 480)", 640, minimum=1),
+        resolution=_prompt_int(
+            "Camera width (height fixed by CAMERA_DEFAULT_HEIGHT)",
+            CAMERA_DEFAULT_WIDTH,
+            minimum=1,
+        ),
         roi=_prompt_int("Centroid ROI half-size", 50, minimum=1),
         no_calib=_prompt_bool("Skip calibration file (raw pixels only)", False),
         calibration_path=Path(_prompt_with_default("Calibration file path", str(DEFAULT_CAL))),
