@@ -7,6 +7,8 @@
   "roi": 20,
   "no_calib": false,
   "calibration_path": "config/camera_params.npz",
+  "use_gaussian_centroiding": false,
+  "dark_gray_path": "config/dark_gray.png",
   "distance_to_board": 200.0,
   "preview_bind": "0.0.0.0",
   "preview_port": 8080,

@@ -36,6 +36,35 @@ ProgressCallback = Callable[[int, float, list], None]
 class MappingService:
     """Centroid capture and voltage-axis sweeps (camera + optional calibration)."""
 
+    def __init__(
+        self,
+        *,
+        use_gaussian_centroiding: bool = False,
+        dark_gray: Optional[np.ndarray] = None,
+        dark_gray_rectified: Optional[np.ndarray] = None,
+    ):
+        self.use_gaussian_centroiding = bool(use_gaussian_centroiding)
+        self.dark_gray = dark_gray
+        self.dark_gray_rectified = dark_gray_rectified
+
+    def _find_centroid(
+        self,
+        gray: np.ndarray,
+        roi: int,
+        *,
+        dark_override: Optional[np.ndarray] = None,
+    ) -> Optional[tuple[float, float]]:
+        if self.use_gaussian_centroiding:
+            dark = dark_override if dark_override is not None else self.dark_gray
+            if dark is None:
+                raise ValueError("Gaussian centroiding enabled but dark frame is not set")
+            if dark.shape != gray.shape:
+                raise ValueError(
+                    f"dark frame shape {dark.shape} does not match frame shape {gray.shape}"
+                )
+            return centroiding.find_laser_centroid_dark_sub_gaussian(gray, dark, roi)
+        return centroiding.find_laser_centroid(gray, roi)
+
     @staticmethod
     def csv_header(calib: Optional[centroiding.CameraCalibration]) -> list[str]:
         if calib is None:
@@ -44,8 +73,8 @@ class MappingService:
             return ["vdiffx", "vdiffy", "cx_ud_px", "cy_ud_px", "x_mm", "y_mm"]
         return ["vdiffx", "vdiffy", "cx_ud_px", "cy_ud_px"]
 
-    @staticmethod
     def capture_centroid_averages(
+        self,
         cam: Any,
         num_frames: int,
         roi: int,
@@ -63,7 +92,7 @@ class MappingService:
                 gray = picam.get_gray_frame(cam)
                 time.sleep(0.05)
                 rect = calib.undistort_gray(gray)
-                pt = centroiding.find_laser_centroid(rect, roi)
+                pt = self._find_centroid(rect, roi, dark_override=self.dark_gray_rectified)
                 if pt is None:
                     continue
                 pix = np.array([[[pt[0], pt[1]]]], dtype=np.float32)
@@ -82,9 +111,10 @@ class MappingService:
             gray = picam.get_gray_frame(cam)
             time.sleep(0.05)
             if calib is None:
-                res = centroiding.find_laser_centroid(gray, roi)
+                res = self._find_centroid(gray, roi)
             else:
-                res = calib.find_corrected_rectified_centroid(gray, roi)
+                rect = calib.undistort_gray(gray)
+                res = self._find_centroid(rect, roi, dark_override=self.dark_gray_rectified)
             if res is None:
                 continue
             cx.append(res[0])
@@ -113,8 +143,8 @@ class MappingService:
             ]
         return ["vdiffx", "vdiffy", "cx_raw", "cy_raw", "cx_ud_px", "cy_ud_px"]
 
-    @staticmethod
     def capture_centroid_averages_with_raw(
+        self,
         cam: Any,
         num_frames: int,
         roi: int,
@@ -129,7 +159,7 @@ class MappingService:
         from src import picam
 
         if calib is None:
-            return MappingService.capture_centroid_averages(cam, num_frames, roi, None)
+            return self.capture_centroid_averages(cam, num_frames, roi, None)
 
         if calib.H is not None:
             rx_list: list[float] = []
@@ -141,11 +171,11 @@ class MappingService:
             for _ in range(num_frames):
                 gray = picam.get_gray_frame(cam)
                 time.sleep(0.05)
-                praw = centroiding.find_laser_centroid(gray, roi)
+                praw = self._find_centroid(gray, roi)
                 if praw is None:
                     continue
                 rect = calib.undistort_gray(gray)
-                pt = centroiding.find_laser_centroid(rect, roi)
+                pt = self._find_centroid(rect, roi, dark_override=self.dark_gray_rectified)
                 if pt is None:
                     continue
                 pix = np.array([[[pt[0], pt[1]]]], dtype=np.float32)
@@ -175,11 +205,11 @@ class MappingService:
         for _ in range(num_frames):
             gray = picam.get_gray_frame(cam)
             time.sleep(0.05)
-            praw = centroiding.find_laser_centroid(gray, roi)
+            praw = self._find_centroid(gray, roi)
             if praw is None:
                 continue
             rect = calib.undistort_gray(gray)
-            pt = centroiding.find_laser_centroid(rect, roi)
+            pt = self._find_centroid(rect, roi, dark_override=self.dark_gray_rectified)
             if pt is None:
                 continue
             rx_list.append(float(praw[0]))

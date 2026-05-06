@@ -88,6 +88,8 @@ class RunConfig:
     verify_sweep_csv_x: Optional[Path] = None
     verify_sweep_csv_y: Optional[Path] = None
     verify_poly_degree: int = 2
+    use_gaussian_centroiding: bool = False
+    dark_gray_path: Optional[Path] = None
 
 
 def _norm_mode(raw: str) -> str:
@@ -187,6 +189,10 @@ def _config_from_params(data: dict[str, Any]) -> RunConfig:
         preview_port=int(data.get("preview_port", 8080)),
         preview_fps=float(data.get("preview_fps", 24.0)),
         preview_quality=int(data.get("preview_quality", 75)),
+        use_gaussian_centroiding=bool(data.get("use_gaussian_centroiding", False)),
+        dark_gray_path=(
+            Path(str(data["dark_gray_path"])) if data.get("dark_gray_path") not in {None, ""} else None
+        ),
     )
 
     if mode == "man":
@@ -393,6 +399,8 @@ def _validate_cfg(cfg: RunConfig) -> None:
             raise ValueError("sweep.step_size must be non-zero")
     if cfg.mode in {"grid", "verify-grid"} and abs(cfg.grid_step_size) <= 1e-9:
         raise ValueError("grid.step_size must be non-zero")
+    if cfg.use_gaussian_centroiding and cfg.dark_gray_path is None:
+        raise ValueError("dark_gray_path is required when use_gaussian_centroiding=true")
     if cfg.distance_to_board is not None and cfg.distance_to_board <= 0:
         raise ValueError("distance_to_board must be positive when provided")
     if cfg.mode == "verify":
@@ -1093,7 +1101,19 @@ def _run_verify_grid_mode(cfg: RunConfig, mapper: MappingService, fsm: FSM, cam:
 
 
 def _run_measurement_mode(cfg: RunConfig) -> int:
-    mapper = MappingService()
+    dark_gray: Optional[np.ndarray] = None
+    if cfg.use_gaussian_centroiding:
+        if cfg.dark_gray_path is None:
+            raise ValueError("dark_gray_path is required when gaussian centroiding is enabled")
+        dark_path = _resolve_script_path(cfg.dark_gray_path)
+        dark_gray = cv2.imread(str(dark_path), cv2.IMREAD_GRAYSCALE)
+        if dark_gray is None:
+            raise FileNotFoundError(f"Could not load dark frame image: {dark_path}")
+
+    mapper = MappingService(
+        use_gaussian_centroiding=cfg.use_gaussian_centroiding,
+        dark_gray=dark_gray,
+    )
     calib: centroiding.CameraCalibration | None = None
     cam = None
     fsm = FSM()
@@ -1101,6 +1121,8 @@ def _run_measurement_mode(cfg: RunConfig) -> int:
         cam = _open_camera(cfg.resolution)
         if not cfg.no_calib:
             calib = CalibrationService.load(cfg.calibration_path)
+            if cfg.use_gaussian_centroiding and dark_gray is not None:
+                mapper.dark_gray_rectified = calib.undistort_gray(dark_gray)
         result = fsm.begin_interactive()
         if not result.ok:
             print("FSM failed to start or was aborted.", file=sys.stderr)
