@@ -1,11 +1,11 @@
 {
   "mode": "sweep_raw",
-  "outfile": "runs/mapping/voltage_mapping_out_calibration_RAW_1.csv",
-  "num_frames": 1,
-  "settling_time": 0.01,
-  "resolution": 640,
-  "roi": 20,
-  "no_calib": false,
+  "outfile": "runs/mapping/WedMay6/voltage_mapping_out_calibration_x_down_1.csv",
+  "num_frames": 3,
+  "settling_time": 0.05,
+  "resolution": 1280,
+  "roi": 400,
+  "no_calib": true,
   "calibration_path": "config/camera_params.npz",
   "use_gaussian_centroiding": false,
   "dark_gray_path": "config/dark_gray.png",
@@ -34,9 +34,9 @@
   "sweep_raw": {
     "note": "Same as sweep but CSV includes cx_raw, cy_raw (distorted) before cx_ud_px / x_mm.",
     "axis": "x",
-    "start_vdiff": -170.0,
-    "end_vdiff": 170.0,
-    "step_size": 1.0
+    "start_vdiff": 170.0,
+    "end_vdiff": -170.0,
+    "step_size": -1.0
   },
 
   "grid": {

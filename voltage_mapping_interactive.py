@@ -860,7 +860,7 @@ def _run_man_mode(cfg: RunConfig, mapper: MappingService, fsm: FSM, cam: Any, ca
             try:
                 vx_cmd = float(parts[0])
                 vy_cmd = float(parts[1])
-                fsm.set_vdiff(vx_cmd, vy_cmd)
+                fsm.set_vdiff_pid(vx_cmd, vy_cmd)
             except ValueError:
                 print("Bad coords. Expected: <x y>", file=sys.stderr)
                 continue
@@ -926,7 +926,7 @@ def _run_grid_mode(cfg: RunConfig, mapper: MappingService, fsm: FSM, cam: Any, c
     for yi, yv in enumerate(ys):
         x_seq = xs if yi % 2 == 0 else list(reversed(xs))
         for xv in x_seq:
-            fsm.set_vdiff(xv, yv)
+            fsm.set_vdiff_pid(xv, yv)
             centroid = mapper.capture_centroid_averages(cam, cfg.num_frames, cfg.roi, calib)
             vx, vy = fsm.get_voltages()
             rows.append([vx, vy, *centroid])
@@ -976,7 +976,7 @@ def _run_verify_mode(cfg: RunConfig, mapper: MappingService, fsm: FSM, cam: Any,
             try:
                 vx_cmd = float(parts[0])
                 vy_cmd = float(parts[1])
-                fsm.set_vdiff(vx_cmd, vy_cmd)
+                fsm.set_vdiff_pid(vx_cmd, vy_cmd)
             except ValueError:
                 print("Bad numbers.", file=sys.stderr)
                 continue
@@ -1080,7 +1080,7 @@ def _run_verify_grid_mode(cfg: RunConfig, mapper: MappingService, fsm: FSM, cam:
     for yi, yv in enumerate(ys):
         x_seq = xs if yi % 2 == 0 else list(reversed(xs))
         for xv in x_seq:
-            fsm.set_vdiff(xv, yv)
+            fsm.set_vdiff_pid(xv, yv)
             centroid = mapper.capture_centroid_averages(cam, cfg.num_frames, cfg.roi, calib)
             vx, vy = fsm.get_voltages()
             rows.append([vx, vy, *centroid])
