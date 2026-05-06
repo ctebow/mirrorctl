@@ -7,6 +7,7 @@
 - Increasing camera resolution (640x480 --> 1280x720) (this requires recalibration for correct mapping)
 - Switching setup to use raw pixel value on the naked rpi hq cam. We also used a focusing lens and turned exposure time wayyy down to make spot size on cam as small as possible
 - Notably, using raw pixels values on naked sensor produced tighter residuals than using the charuco --> might ditch that method in favor of the camera sensor
+- got rid of slewing, direct voltage step to the next point (aside from start)
 
 ### Noticed very weird sinosuidal residuals when testing x-axis behavior:
 - Residuals order of magnitude more than kingsbury (reached out to him)

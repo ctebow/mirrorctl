@@ -1,6 +1,6 @@
 {
   "mode": "sweep_raw",
-  "outfile": "runs/mapping/WedMay6/voltage_mapping_out_calibration_x_down_1.csv",
+  "outfile": "runs/mapping/WedMay6/voltage_mapping_out_calibration_x_reverse_2.csv",
   "num_frames": 3,
   "settling_time": 0.05,
   "resolution": 1280,
