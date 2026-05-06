@@ -1,6 +1,6 @@
 {
   "mode": "random_square_walk",
-  "outfile": "runs/mapping/WedMay6/voltage_mapping_out_calibration_x_random_square_walk_1.csv",
+  "outfile": "runs/mapping/WedMay6/voltage_mapping_out_calibration_x_random_square_walk_2.csv",
   "num_frames": 3,
   "settling_time": 0.05,
   "resolution": 1280,
@@ -41,10 +41,10 @@
 
   "random_square_walk": {
     "note": "Two diagonal_corners define an axis-aligned rectangle centered at (0,0); walk visits four corners plus center via immediate FSM updates.",
-    "diagonal_corner_a": [-20.0, -20.0],
-    "diagonal_corner_b": [20.0, 20.0],
-    "step_settling_s": 0.1,
-    "iterations": 20
+    "diagonal_corner_a": [-10.0, -10.0],
+    "diagonal_corner_b": [10.0, 10.0],
+    "step_settling_s": 0.05,
+    "iterations": 100
   },
 
   "grid": {
