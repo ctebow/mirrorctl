@@ -1,7 +1,7 @@
 """
 Interactive voltage mapping entrypoint with prompt or params-file inputs.
 
-Modes: preview-cam, man, sweep, sweep-raw, random-square-walk, grid, verify, verify-sweep, verify-grid.
+Modes: preview-cam, man, sweep, sweep-raw, random-square-walk, grid, grid-raw, verify, verify-sweep, verify-grid.
 
 verify: After fitting polynomials from prior mapping CSV(s), enter manual vdiff pairs;
 live centroid → actual x_mm/y_mm vs model expectation; results printed and written to outfile.
@@ -117,6 +117,8 @@ def _norm_mode(raw: str) -> str:
         "random-square-walk": "random-square-walk",
         "random_square_walk": "random-square-walk",
         "grid": "grid",
+        "grid-raw": "grid-raw",
+        "grid_raw": "grid-raw",
         "verify": "verify",
         "verify-sweep": "verify-sweep",
         "verify-grid": "verify-grid",
@@ -230,6 +232,16 @@ def _config_from_params(data: dict[str, Any]) -> RunConfig:
         cfg.grid_end_x = float(end[0])
         cfg.grid_end_y = float(end[1])
         cfg.grid_step_size = float(mode_block.get("step_size", 1.0))
+    elif mode == "grid-raw":
+        start = mode_block.get("start_corner", [0.0, 0.0])
+        end = mode_block.get("end_corner", [150.0, 150.0])
+        if not (isinstance(start, list) and len(start) == 2 and isinstance(end, list) and len(end) == 2):
+            raise ValueError("grid_raw.start_corner and grid_raw.end_corner must be [x, y].")
+        cfg.grid_start_x = float(start[0])
+        cfg.grid_start_y = float(start[1])
+        cfg.grid_end_x = float(end[0])
+        cfg.grid_end_y = float(end[1])
+        cfg.grid_step_size = float(mode_block.get("step_size", 1.0))
     elif mode == "verify":
         cfg.verify_fit = str(mode_block.get("fit", "grid")).strip().lower()
         g = mode_block.get("grid_csv")
@@ -285,7 +297,7 @@ def _config_from_params(data: dict[str, Any]) -> RunConfig:
 def _config_from_prompts() -> RunConfig:
     mode = _norm_mode(
         _prompt_with_default(
-            "Mode (preview-cam | man | sweep | sweep-raw | random-square-walk | grid | verify | verify-sweep | verify-grid)",
+            "Mode (preview-cam | man | sweep | sweep-raw | random-square-walk | grid | grid-raw | verify | verify-sweep | verify-grid)",
             "man",
         )
     )
@@ -327,6 +339,12 @@ def _config_from_prompts() -> RunConfig:
         cfg.end_vdiff = _prompt_float("Sweep end vdiff", 150.0)
         cfg.step_size = _prompt_float("Sweep step size", 1.0)
     elif mode == "grid":
+        cfg.grid_start_x = _prompt_float("Grid start corner x", 0.0)
+        cfg.grid_start_y = _prompt_float("Grid start corner y", 0.0)
+        cfg.grid_end_x = _prompt_float("Grid end corner x", 150.0)
+        cfg.grid_end_y = _prompt_float("Grid end corner y", 150.0)
+        cfg.grid_step_size = _prompt_float("Grid step size", 1.0)
+    elif mode == "grid-raw":
         cfg.grid_start_x = _prompt_float("Grid start corner x", 0.0)
         cfg.grid_start_y = _prompt_float("Grid start corner y", 0.0)
         cfg.grid_end_x = _prompt_float("Grid end corner x", 150.0)
@@ -472,6 +490,7 @@ def _validate_cfg(cfg: RunConfig) -> None:
         "verify-sweep",
         "verify-grid",
         "random-square-walk",
+        "grid-raw",
     }:
         raise ValueError(f"Unsupported mode: {cfg.mode}")
     if cfg.mode in {"sweep", "sweep-raw", "verify-sweep"}:
@@ -479,7 +498,7 @@ def _validate_cfg(cfg: RunConfig) -> None:
             raise ValueError("sweep.axis must be x or y")
         if abs(cfg.step_size) <= 1e-9:
             raise ValueError("sweep.step_size must be non-zero")
-    if cfg.mode in {"grid", "verify-grid"} and abs(cfg.grid_step_size) <= 1e-9:
+    if cfg.mode in {"grid", "grid-raw", "verify-grid"} and abs(cfg.grid_step_size) <= 1e-9:
         raise ValueError("grid.step_size must be non-zero")
     if cfg.use_gaussian_centroiding and cfg.dark_gray_path is None:
         raise ValueError("dark_gray_path is required when use_gaussian_centroiding=true")
@@ -867,7 +886,7 @@ def _start_vdiff_for_mode(cfg: RunConfig) -> tuple[float, float]:
         raise ValueError("sweep.axis must be x or y")
     if cfg.mode == "random-square-walk":
         return 0.0, 0.0
-    if cfg.mode in {"grid", "verify-grid"}:
+    if cfg.mode in {"grid", "grid-raw", "verify-grid"}:
         return float(cfg.grid_start_x), float(cfg.grid_start_y)
     raise ValueError(f"Unsupported measurement mode for startup positioning: {cfg.mode}")
 
@@ -1058,6 +1077,30 @@ def _run_grid_mode(cfg: RunConfig, mapper: MappingService, fsm: FSM, cam: Any, c
             time.sleep(cfg.settling_time)
 
     header = mapper.csv_header(calib)
+    rows, header = _augment_rows_with_angles(rows, header, cfg.distance_to_board)
+    mapper.write_csv(cfg.outfile, rows, header, mode="w")
+    print(f"Wrote {cfg.outfile} ({len(rows)} rows)")
+    return 0
+
+
+def _run_grid_raw_mode(cfg: RunConfig, mapper: MappingService, fsm: FSM, cam: Any, calib) -> int:
+    """Grid traversal with cx_raw, cy_raw columns (same layout as sweep-raw)."""
+    step_x = cfg.grid_step_size if cfg.grid_end_x >= cfg.grid_start_x else -cfg.grid_step_size
+    step_y = cfg.grid_step_size if cfg.grid_end_y >= cfg.grid_start_y else -cfg.grid_step_size
+    xs = _axis_points(cfg.grid_start_x, cfg.grid_end_x, step_x)
+    ys = _axis_points(cfg.grid_start_y, cfg.grid_end_y, step_y)
+
+    rows: list[list[Any]] = []
+    for yi, yv in enumerate(ys):
+        x_seq = xs if yi % 2 == 0 else list(reversed(xs))
+        for xv in x_seq:
+            fsm.set_vdiff_pid(xv, yv)
+            centroid = mapper.capture_centroid_averages_with_raw(cam, cfg.num_frames, cfg.roi, calib)
+            vx, vy = fsm.get_voltages()
+            rows.append([vx, vy, *centroid])
+            time.sleep(cfg.settling_time)
+
+    header = mapper.csv_header_sweep_with_raw(calib)
     rows, header = _augment_rows_with_angles(rows, header, cfg.distance_to_board)
     mapper.write_csv(cfg.outfile, rows, header, mode="w")
     print(f"Wrote {cfg.outfile} ({len(rows)} rows)")
@@ -1264,6 +1307,8 @@ def _run_measurement_mode(cfg: RunConfig) -> int:
             return _run_random_square_walk_mode(cfg, mapper, fsm, cam, calib)
         if cfg.mode == "grid":
             return _run_grid_mode(cfg, mapper, fsm, cam, calib)
+        if cfg.mode == "grid-raw":
+            return _run_grid_raw_mode(cfg, mapper, fsm, cam, calib)
         if cfg.mode == "verify":
             return _run_verify_mode(cfg, mapper, fsm, cam, calib)
         if cfg.mode == "verify-sweep":
