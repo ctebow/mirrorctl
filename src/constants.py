@@ -1,7 +1,7 @@
 # filter clock pins
 FCLK_PWM_PIN_1 = 12  # Must be a PWM-capable pin; config-pin to pwm if needed
 FCLK_PWM_PIN_2 = 13
-FCLK_HZ = 6_000 # (8_400 for 5mm)should be 60 * 6th order bessel LPF cutoff (140HZ for 5mm diamter mirror, I think 100 for 6.4mm)
+FCLK_HZ = 8_400 # (8_400 for 5mm, 6_000 for 6.4mm)should be 60 * 6th order bessel LPF cutoff (140HZ for 5mm diamter mirror, I think 100 for 6.4mm)
 FCLK_DUTY_PERCENT = 500000
 
 # delay

@@ -1,7 +1,7 @@
 """
 Interactive voltage mapping entrypoint with prompt or params-file inputs.
 
-Modes: preview-cam, man, sweep, sweep-raw, grid, verify, verify-sweep, verify-grid.
+Modes: preview-cam, man, sweep, sweep-raw, random-square-walk, grid, verify, verify-sweep, verify-grid.
 
 verify: After fitting polynomials from prior mapping CSV(s), enter manual vdiff pairs;
 live centroid → actual x_mm/y_mm vs model expectation; results printed and written to outfile.
@@ -12,12 +12,17 @@ like sweep mode). CSV is the sweep CSV plus expected_x, expected_y, difference_x
 
 verify-grid: Same as verify-sweep, but traverses a full grid (start_corner, end_corner, step_size)
 like grid mode (serpentine x-order per row).
+
+random-square-walk: Define an axis-aligned rectangle centered at (0,0) from two diagonal vdiff corners;
+random hop among four corners plus center using immediate DAC updates (no stepped slew).
+Logs vdiff, raw and undistorted centroids (+ mm when homography loaded), plus the next random target.
 """
 from __future__ import annotations
 
 import csv
 import json
 import math
+import random
 import sys
 import threading
 import time
@@ -90,6 +95,11 @@ class RunConfig:
     verify_poly_degree: int = 2
     use_gaussian_centroiding: bool = False
     dark_gray_path: Optional[Path] = None
+    # random-square-walk: axis-aligned rectangle centered at (0,0) from two diagonal corners [x,y]
+    rw_corner_a: tuple[float, float] = (-10.0, -10.0)
+    rw_corner_b: tuple[float, float] = (10.0, 10.0)
+    rw_step_settling_s: float = 0.1
+    rw_iterations: int = 50
 
 
 def _norm_mode(raw: str) -> str:
@@ -104,6 +114,8 @@ def _norm_mode(raw: str) -> str:
         "auto": "sweep",
         "sweep-raw": "sweep-raw",
         "sweep_raw": "sweep-raw",
+        "random-square-walk": "random-square-walk",
+        "random_square_walk": "random-square-walk",
         "grid": "grid",
         "verify": "verify",
         "verify-sweep": "verify-sweep",
@@ -258,13 +270,22 @@ def _config_from_params(data: dict[str, Any]) -> RunConfig:
         cfg.verify_sweep_csv_x = Path(str(sx)) if sx else None
         cfg.verify_sweep_csv_y = Path(str(sy)) if sy else None
         cfg.verify_poly_degree = int(mode_block.get("poly_degree", 2))
+    elif mode == "random-square-walk":
+        a = mode_block.get("diagonal_corner_a", [-10.0, -10.0])
+        b = mode_block.get("diagonal_corner_b", [10.0, 10.0])
+        if not (isinstance(a, list) and len(a) == 2 and isinstance(b, list) and len(b) == 2):
+            raise ValueError("random_square_walk.diagonal_corner_a and diagonal_corner_b must be [x, y].")
+        cfg.rw_corner_a = (float(a[0]), float(a[1]))
+        cfg.rw_corner_b = (float(b[0]), float(b[1]))
+        cfg.rw_step_settling_s = float(mode_block.get("step_settling_s", 0.1))
+        cfg.rw_iterations = int(mode_block.get("iterations", 50))
     return cfg
 
 
 def _config_from_prompts() -> RunConfig:
     mode = _norm_mode(
         _prompt_with_default(
-            "Mode (preview-cam | man | sweep | sweep-raw | grid | verify | verify-sweep | verify-grid)",
+            "Mode (preview-cam | man | sweep | sweep-raw | random-square-walk | grid | verify | verify-sweep | verify-grid)",
             "man",
         )
     )
@@ -377,7 +398,67 @@ def _config_from_prompts() -> RunConfig:
             cfg.verify_grid_csv = None
         else:
             raise ValueError("verify fit must be 'grid' or 'sweep'")
+    elif mode == "random-square-walk":
+        cfg.rw_corner_a = (
+            _prompt_float("Random-walk diagonal corner A (x)", cfg.rw_corner_a[0]),
+            _prompt_float("Random-walk diagonal corner A (y)", cfg.rw_corner_a[1]),
+        )
+        cfg.rw_corner_b = (
+            _prompt_float("Random-walk diagonal corner B (x)", cfg.rw_corner_b[0]),
+            _prompt_float("Random-walk diagonal corner B (y)", cfg.rw_corner_b[1]),
+        )
+        cfg.rw_step_settling_s = _prompt_float("Settling time before capture (s, after each jump)", 0.1, minimum=0.0)
+        cfg.rw_iterations = _prompt_int("Random-walk iterations (logged steps)", 50, minimum=1)
     return cfg
+
+
+def _random_walk_five_points(cfg: RunConfig) -> list[tuple[float, float]]:
+    """Axis-aligned rectangle corners + (0,0) from two opposite corners about the origin."""
+    c1, c2 = cfg.rw_corner_a, cfg.rw_corner_b
+    mid_x = (c1[0] + c2[0]) / 2.0
+    mid_y = (c1[1] + c2[1]) / 2.0
+    if abs(mid_x) > 5e-4 or abs(mid_y) > 5e-4:
+        raise ValueError(
+            "random-square-walk diagonal corners must sit on opposite sides of (0,0) "
+            f"(midpoint was ({mid_x}, {mid_y}), expected ~(0, 0))."
+        )
+    xl, xh = sorted([c1[0], c2[0]])
+    yl, yh = sorted([c1[1], c2[1]])
+    if xh - xl <= 1e-9 or yh - yl <= 1e-9:
+        raise ValueError("random-square-walk rectangle has zero width or height from the two corners.")
+    wx, wy = xh - xl, yh - yl
+    rel = abs(wx - wy) / max(wx, wy, 1e-9)
+    if rel > 0.05:
+        print(
+            f"[random-square-walk] warning: corner span is ~{wx:g} x {wy:g} V (not a square within 5% tol).",
+            file=sys.stderr,
+        )
+    pts: list[tuple[float, float]] = [
+        (xl, yl),
+        (xh, yl),
+        (xh, yh),
+        (xl, yh),
+        (0.0, 0.0),
+    ]
+    for vx, vy in pts:
+        if not (VDIFF_MIN_VOLTS <= vx <= VDIFF_MAX_VOLTS and VDIFF_MIN_VOLTS <= vy <= VDIFF_MAX_VOLTS):
+            raise ValueError(
+                f"random-square-walk: point ({vx}, {vy}) is outside vdiff range "
+                f"[{VDIFF_MIN_VOLTS}, {VDIFF_MAX_VOLTS}]."
+            )
+    return pts
+
+
+def _rw_vertices_other_than(
+    points: list[tuple[float, float]],
+    vx: float,
+    vy: float,
+    *,
+    tol: float = 1e-6,
+) -> list[tuple[float, float]]:
+    """Vertices different from (vx, vy) so each hop always moves to a distinct point."""
+    out = [(px, py) for px, py in points if abs(px - vx) > tol or abs(py - vy) > tol]
+    return out if out else list(points)
 
 
 def _validate_cfg(cfg: RunConfig) -> None:
@@ -390,6 +471,7 @@ def _validate_cfg(cfg: RunConfig) -> None:
         "verify",
         "verify-sweep",
         "verify-grid",
+        "random-square-walk",
     }:
         raise ValueError(f"Unsupported mode: {cfg.mode}")
     if cfg.mode in {"sweep", "sweep-raw", "verify-sweep"}:
@@ -450,6 +532,14 @@ def _validate_cfg(cfg: RunConfig) -> None:
             raise ValueError(
                 "verify-grid requires calibration with homography H (do not use no_calib)"
             )
+    if cfg.mode == "random-square-walk":
+        _random_walk_five_points(cfg)
+        if cfg.rw_iterations < 1:
+            raise ValueError("random-square-walk.iterations must be >= 1")
+
+
+def _csv_header_random_square_walk(calib: Optional[centroiding.CameraCalibration]) -> list[str]:
+    return ["iteration", *MappingService.csv_header_sweep_with_raw(calib), "next_vdiffx", "next_vdiffy"]
 
 
 def _poly_terms_2d_count(degree: int) -> int:
@@ -775,6 +865,8 @@ def _start_vdiff_for_mode(cfg: RunConfig) -> tuple[float, float]:
         if cfg.axis == "y":
             return 0.0, float(cfg.start_vdiff)
         raise ValueError("sweep.axis must be x or y")
+    if cfg.mode == "random-square-walk":
+        return 0.0, 0.0
     if cfg.mode in {"grid", "verify-grid"}:
         return float(cfg.grid_start_x), float(cfg.grid_start_y)
     raise ValueError(f"Unsupported measurement mode for startup positioning: {cfg.mode}")
@@ -784,6 +876,12 @@ def _position_to_start(cfg: RunConfig, fsm: FSM) -> None:
     """
     Move the mirror to the first mapping coordinate and allow settling before capture.
     """
+    if cfg.mode == "random-square-walk":
+        print("[STARTUP] random-square-walk: immediate vdiff=(0, 0)")
+        fsm.set_vdiff_immediate(0.0, 0.0)
+        if cfg.rw_step_settling_s > 0:
+            time.sleep(cfg.rw_step_settling_s)
+        return
     vx0, vy0 = _start_vdiff_for_mode(cfg)
     print(f"[STARTUP] moving to start vdiff=({vx0}, {vy0})")
     fsm.set_vdiff(vx0, vy0)
@@ -913,6 +1011,33 @@ def _run_sweep_raw_mode(cfg: RunConfig, mapper: MappingService, fsm: FSM, cam: A
     rows, header = _augment_rows_with_angles(rows, header, cfg.distance_to_board)
     mapper.write_csv(cfg.outfile, rows, header, mode="w")
     print(f"Wrote {cfg.outfile} ({len(rows)} rows)")
+    return 0
+
+
+def _run_random_square_walk_mode(cfg: RunConfig, mapper: MappingService, fsm: FSM, cam: Any, calib) -> int:
+    """
+    Random hops among rectangle corners (+ center); immediate DAC updates per hop.
+    Each hop picks a vertex different from the current FSM position (never stays put).
+    Each row logs centroid data and ``next_*``, which is another vertex distinct from this row's landing.
+    """
+    points = _random_walk_five_points(cfg)
+    rows_out: list[list[Any]] = []
+    for iteration in range(cfg.rw_iterations):
+        cur_x, cur_y = fsm.get_voltages()
+        landing_x, landing_y = random.choice(_rw_vertices_other_than(points, cur_x, cur_y))
+        next_dx, next_dy = random.choice(_rw_vertices_other_than(points, landing_x, landing_y))
+        fsm.set_vdiff_immediate(landing_x, landing_y)
+        if cfg.rw_step_settling_s > 0:
+            time.sleep(cfg.rw_step_settling_s)
+        cap = mapper.capture_centroid_averages_with_raw(cam, cfg.num_frames, cfg.roi, calib)
+        vx, vy = fsm.get_voltages()
+        rows_out.append([iteration, vx, vy, *cap, next_dx, next_dy])
+
+    header = _csv_header_random_square_walk(calib)
+    rows_out, header = _augment_rows_with_angles(rows_out, header, cfg.distance_to_board)
+    outfile = _resolve_script_path(cfg.outfile)
+    mapper.write_csv(outfile, rows_out, header, mode="w")
+    print(f"Wrote {outfile} ({len(rows_out)} rows)")
     return 0
 
 
@@ -1135,6 +1260,8 @@ def _run_measurement_mode(cfg: RunConfig) -> int:
             return _run_sweep_mode(cfg, mapper, fsm, cam, calib)
         if cfg.mode == "sweep-raw":
             return _run_sweep_raw_mode(cfg, mapper, fsm, cam, calib)
+        if cfg.mode == "random-square-walk":
+            return _run_random_square_walk_mode(cfg, mapper, fsm, cam, calib)
         if cfg.mode == "grid":
             return _run_grid_mode(cfg, mapper, fsm, cam, calib)
         if cfg.mode == "verify":
