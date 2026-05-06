@@ -212,11 +212,10 @@ class MappingService:
             raise ValueError(f"end {params.end} not in vdiff range [{VDIFF_MIN_VOLTS}, {VDIFF_MAX_VOLTS}]")
 
         coords: list[list] = []
-        curr = params.start
-        step = 0
+        sweep_values = self._axis_points(params.start, params.end, params.step_size)
 
         try:
-            while curr <= params.end + 1e-9:
+            for step, curr in enumerate(sweep_values):
                 if params.axis == "x":
                     fsm.set_vdiff(curr, 0.0)
                 elif params.axis == "y":
@@ -231,8 +230,6 @@ class MappingService:
                 if progress:
                     progress(step, curr, row)
                 time.sleep(params.settling_time)
-                curr += params.step_size
-                step += 1
         finally:
             pass
 
@@ -262,11 +259,10 @@ class MappingService:
             raise ValueError(f"end {params.end} not in vdiff range [{VDIFF_MIN_VOLTS}, {VDIFF_MAX_VOLTS}]")
 
         coords: list[list] = []
-        curr = params.start
-        step = 0
+        sweep_values = self._axis_points(params.start, params.end, params.step_size)
 
         try:
-            while curr <= params.end + 1e-9:
+            for step, curr in enumerate(sweep_values):
                 if params.axis == "x":
                     fsm.set_vdiff(curr, 0.0)
                 elif params.axis == "y":
@@ -281,8 +277,6 @@ class MappingService:
                 if progress:
                     progress(step, curr, row)
                 time.sleep(params.settling_time)
-                curr += params.step_size
-                step += 1
         finally:
             pass
 

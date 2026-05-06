@@ -24,4 +24,5 @@
 - Try 5mm mirror instead of 6.4mm (be more careful with this one)
 - Sweep from + to - instead of - to + to see if residuals remain the same
 - Use a gaussian centroiding finding method instead of current approach
+- Optimize camera settings --> Lower iso, higher shutter, subtract dark frame from laser frame. Also keep doing thresholding. The rings around laser I just look up are "airy rings" and are what we thought, just diffraction pattern coming from laser interfering with itself via reflections on glass covering sensor pixels. 
 - Better focusing lens? 
