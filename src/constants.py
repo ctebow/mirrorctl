@@ -1,7 +1,7 @@
 # filter clock pins
 FCLK_PWM_PIN_1 = 12  # Must be a PWM-capable pin; config-pin to pwm if needed
 FCLK_PWM_PIN_2 = 13
-FCLK_HZ = 8_400 # should be 60 * 6th order bessel LPF cutoff (140HZ for 5mm diamter mirror, I think 100 for 6.4mm)
+FCLK_HZ = 8_400 # (8_400 for 5mm, 6_000 for 6.4mm)should be 60 * 6th order bessel LPF cutoff (140HZ for 5mm diamter mirror, I think 100 for 6.4mm)
 FCLK_DUTY_PERCENT = 500000
 
 # delay
@@ -41,3 +41,22 @@ SPI_MODE = 0b01
 SPI_MAX_SPEED = 1_000_000
 
 CURRENT_SCREEN_DISTANCE = 360 # mm
+
+# centroiding threshold configuration
+LASER_CENTROID_THRESHOLD_ENABLED = True
+LASER_CENTROID_INTENSITY_THRESHOLD = 0
+
+# camera defaults for mapping/centroiding
+CAMERA_DEFAULT_WIDTH = 1280 #640
+CAMERA_DEFAULT_HEIGHT = 720 #480
+CAMERA_FRAME_RATE = 60.0
+CAMERA_MAIN_FORMAT = "RGB888"
+
+# exposure/gain controls
+CAMERA_AUTO_EXPOSURE_ENABLED = False
+CAMERA_EXPOSURE_TIME_US = 200
+CAMERA_ANALOGUE_GAIN = 1.0
+
+# white balance controls
+CAMERA_AUTO_WHITE_BALANCE_ENABLED = False
+CAMERA_COLOUR_GAINS = (1.0, 1.0)

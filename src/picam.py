@@ -9,6 +9,18 @@ import time
 
 import cv2
 
+from src.constants import (
+    CAMERA_ANALOGUE_GAIN,
+    CAMERA_AUTO_EXPOSURE_ENABLED,
+    CAMERA_AUTO_WHITE_BALANCE_ENABLED,
+    CAMERA_COLOUR_GAINS,
+    CAMERA_DEFAULT_HEIGHT,
+    CAMERA_DEFAULT_WIDTH,
+    CAMERA_EXPOSURE_TIME_US,
+    CAMERA_FRAME_RATE,
+    CAMERA_MAIN_FORMAT,
+)
+
 try:
     from picamera2 import Picamera2
 except ImportError as e:
@@ -20,9 +32,9 @@ except ImportError as e:
         "apt installs into system Python, not into an isolated venv."
     ) from e
 
-# (width, height) — keep in sync with CLI defaults in voltage_mapping_main
-DEFAULT_FRAME_SIZE = (640, 480)
-DEFAULT_FRAME_RATE = 60
+# (width, height) and stream controls are centralized in src/constants.py
+DEFAULT_FRAME_SIZE = (CAMERA_DEFAULT_WIDTH, CAMERA_DEFAULT_HEIGHT)
+DEFAULT_FRAME_RATE = CAMERA_FRAME_RATE
 
 
 def normalize_resolution(resolution):
@@ -32,7 +44,7 @@ def normalize_resolution(resolution):
     if resolution is None:
         return DEFAULT_FRAME_SIZE
     if isinstance(resolution, int):
-        return (resolution, 480)
+        return (resolution, CAMERA_DEFAULT_HEIGHT)
     if isinstance(resolution, (tuple, list)) and len(resolution) == 2:
         return (int(resolution[0]), int(resolution[1]))
     raise TypeError("resolution must be int width or (width, height) tuple")
@@ -40,9 +52,19 @@ def normalize_resolution(resolution):
 
 def create_video_configuration(picam2, size, frame_rate=DEFAULT_FRAME_RATE):
     """RGB888 main stream — unambiguous array layout for preview and processing."""
+    controls = {
+        "FrameRate": frame_rate,
+        "AeEnable": bool(CAMERA_AUTO_EXPOSURE_ENABLED),
+        "AwbEnable": bool(CAMERA_AUTO_WHITE_BALANCE_ENABLED),
+    }
+    if not CAMERA_AUTO_EXPOSURE_ENABLED:
+        controls["ExposureTime"] = int(CAMERA_EXPOSURE_TIME_US)
+        controls["AnalogueGain"] = float(CAMERA_ANALOGUE_GAIN)
+    if not CAMERA_AUTO_WHITE_BALANCE_ENABLED:
+        controls["ColourGains"] = tuple(float(v) for v in CAMERA_COLOUR_GAINS)
     return picam2.create_video_configuration(
-        main={"format": "RGB888", "size": size},
-        controls={"FrameRate": frame_rate},
+        main={"format": CAMERA_MAIN_FORMAT, "size": size},
+        controls=controls,
     )
 
 

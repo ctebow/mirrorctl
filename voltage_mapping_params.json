@@ -1,12 +1,14 @@
 {
-  "mode": "grid",
-  "outfile": "runs/mapping/voltage_mapping_out_grid_test.csv",
-  "num_frames": 1,
-  "settling_time": 0.01,
-  "resolution": 640,
-  "roi": 50,
-  "no_calib": false,
+  "mode": "grid_raw",
+  "outfile": "runs/mapping/WedMay6/voltage_mapping_out_calibration_x_grid_raw_200_1.csv",
+  "num_frames": 3,
+  "settling_time": 0.05,
+  "resolution": 1280,
+  "roi": 400,
+  "no_calib": true,
   "calibration_path": "config/camera_params.npz",
+  "use_gaussian_centroiding": false,
+  "dark_gray_path": "config/dark_gray.png",
   "distance_to_board": 200.0,
   "preview_bind": "0.0.0.0",
   "preview_port": 8080,
@@ -23,15 +25,64 @@
   },
 
   "sweep": {
-    "axis": "y",
+    "axis": "x",
     "start_vdiff": -170.0,
     "end_vdiff": 170.0,
     "step_size": 1.0
+  },
+
+  "sweep_raw": {
+    "note": "Same as sweep but CSV includes cx_raw, cy_raw (distorted) before cx_ud_px / x_mm.",
+    "axis": "x",
+    "start_vdiff": 170.0,
+    "end_vdiff": -170.0,
+    "step_size": -1.0
+  },
+
+  "random_square_walk": {
+    "note": "Two diagonal_corners define an axis-aligned rectangle centered at (0,0); walk visits four corners plus center via immediate FSM updates.",
+    "diagonal_corner_a": [-50.0, -50.0],
+    "diagonal_corner_b": [50.0, 50.0],
+    "step_settling_s": 0.1,
+    "iterations": 100
   },
 
   "grid": {
     "start_corner": [-170.0, -170.0],
     "end_corner": [170.0, 170.0],
     "step_size": 5.0
+  },
+
+  "grid_raw": {
+    "note": "Same traversal as grid; CSV matches sweep-raw (cx_raw, cy_raw before cx_ud_px / x_mm).",
+    "start_corner": [-100.0, -100.0],
+    "end_corner": [100.0, 100.0],
+    "step_size": 10.0
+  },
+
+  "verify": {
+    "fit": "grid",
+    "grid_csv": "runs/mapping/voltage_mapping_out_grid_test.csv",
+    "poly_degree": 3
+  },
+
+  "verify_sweep": {
+    "axis": "y",
+    "start_vdiff": -170.0,
+    "end_vdiff": 170.0,
+    "step_size": 1.0,
+    "fit": "sweep",
+    "sweep_csv_x": "runs/mapping/voltage_mapping_out_diagnose_xaxis_st0.01_nocharuco_1.csv",
+    "sweep_csv_y": "runs/mapping/voltage_mapping_out_diagnose_yaxis_st0.01_nocharuco_1.csv",
+    "poly_degree": 3
+  },
+
+  "verify_grid": {
+    "start_corner": [-170.0, -170.0],
+    "end_corner": [170.0, 170.0],
+    "step_size": 5.0,
+    "fit": "grid",
+    "grid_csv": "runs/mapping/reference_grid.csv",
+    "poly_degree": 2
   }
 }

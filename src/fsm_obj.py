@@ -134,6 +134,21 @@ class FSM:
 
         return res
 
+    def set_vdiff_immediate(self, vdiff_x_new: float, vdiff_y_new: float) -> Tuple[float, float]:
+        """
+        Jump vdiff in one DAC update (no stepped slew). Uses the same direct
+        four-channel write path as ``slew_pid``.
+        """
+        self._check_vdiff_range(vdiff_x_new, vdiff_y_new)
+        res = helpers.slew_pid(
+            (self.vdiff_x, self.vdiff_y),
+            (vdiff_x_new, vdiff_y_new),
+            self.spi,
+        )
+        self.vdiff_x = res[0]
+        self.vdiff_y = res[1]
+        return res
+
     def set_vdiff_pid(self, vdiff_x_new: float, vdiff_y_new: float) -> Tuple[float, float]:
             self._check_vdiff_range(vdiff_x_new, vdiff_y_new)
 

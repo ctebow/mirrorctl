@@ -109,6 +109,10 @@ def main() -> None:
     target_period = 1.0 / max(args.fps, 1.0)
 
     picam2 = picam.init_camera(frame_size)
+    picam2.set_controls({
+    "AeEnable": False,
+    "ExposureTime": 200,  # microseconds — adjust this
+    })
     cap_thread = threading.Thread(
         target=_capture_loop,
         args=(picam2, int(args.quality), target_period),
