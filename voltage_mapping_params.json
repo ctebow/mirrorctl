@@ -1,10 +1,10 @@
 {
-  "mode": "grid_raw",
-  "outfile": "runs/mapping/WedMay6/voltage_mapping_out_calibration_x_grid_raw_200_1.csv",
+  "mode": "sweep_raw",
+  "outfile": "runs/mapping/WedMay6/y_sweep.csv",
   "num_frames": 3,
-  "settling_time": 0.05,
+  "settling_time": 0.2,
   "resolution": 1280,
-  "roi": 400,
+  "roi": 200,
   "no_calib": true,
   "calibration_path": "config/camera_params.npz",
   "use_gaussian_centroiding": false,
@@ -25,7 +25,7 @@
   },
 
   "sweep": {
-    "axis": "x",
+    "axis": "y",
     "start_vdiff": -170.0,
     "end_vdiff": 170.0,
     "step_size": 1.0
@@ -43,7 +43,7 @@
     "note": "Two diagonal_corners define an axis-aligned rectangle centered at (0,0); walk visits four corners plus center via immediate FSM updates.",
     "diagonal_corner_a": [-50.0, -50.0],
     "diagonal_corner_b": [50.0, 50.0],
-    "step_settling_s": 0.1,
+    "step_settling_s": 0.2,
     "iterations": 100
   },
 
@@ -55,8 +55,8 @@
 
   "grid_raw": {
     "note": "Same traversal as grid; CSV matches sweep-raw (cx_raw, cy_raw before cx_ud_px / x_mm).",
-    "start_corner": [-100.0, -100.0],
-    "end_corner": [100.0, 100.0],
+    "start_corner": [-120.0, -120.0],
+    "end_corner": [120.0, 120.0],
     "step_size": 10.0
   },
 
