@@ -1,6 +1,6 @@
 {
   "mode": "sweep_raw",
-  "outfile": "runs/mapping/WedMay6/y_sweep.csv",
+  "outfile": "runs/mapping/SatMay9/x_sweep_reverse_6.4mm_3.csv",
   "num_frames": 3,
   "settling_time": 0.2,
   "resolution": 1280,
@@ -26,16 +26,16 @@
 
   "sweep": {
     "axis": "y",
-    "start_vdiff": -170.0,
-    "end_vdiff": 170.0,
-    "step_size": 1.0
+    "start_vdiff": 150.0,
+    "end_vdiff": -150.0,
+    "step_size": -1.0
   },
 
   "sweep_raw": {
     "note": "Same as sweep but CSV includes cx_raw, cy_raw (distorted) before cx_ud_px / x_mm.",
     "axis": "x",
-    "start_vdiff": 170.0,
-    "end_vdiff": -170.0,
+    "start_vdiff": 150.0,
+    "end_vdiff": -150.0,
     "step_size": -1.0
   },
 
