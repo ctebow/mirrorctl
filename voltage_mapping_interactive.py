@@ -1091,9 +1091,8 @@ def _run_grid_raw_mode(cfg: RunConfig, mapper: MappingService, fsm: FSM, cam: An
     ys = _axis_points(cfg.grid_start_y, cfg.grid_end_y, step_y)
 
     rows: list[list[Any]] = []
-    for yi, yv in enumerate(ys):
-        x_seq = xs if yi % 2 == 0 else list(reversed(xs))
-        for xv in x_seq:
+    for yv in ys:
+        for xv in xs:  # Always same direction — no reversal
             fsm.set_vdiff_pid(xv, yv)
             centroid = mapper.capture_centroid_averages_with_raw(cam, cfg.num_frames, cfg.roi, calib)
             vx, vy = fsm.get_voltages()

@@ -10,6 +10,7 @@ On Mac browser:
   http://<pi-ip>:8080/
 
 Stop with Ctrl+C on the Pi. Same Picamera2 config as mapping (RGB888 → gray → BGR JPEG).
+Pass --max-res to use the sensor's full native resolution (slower fps recommended).
 """
 from __future__ import annotations
 
@@ -34,13 +35,48 @@ _latest_lock = threading.Lock()
 _stop_capture = threading.Event()
 
 
-def _capture_loop(picam2, jpeg_quality: int, target_period_s: float) -> None:
+def get_max_resolution(picam2) -> tuple[int, int]:
+    """Return the sensor's maximum resolution by inspecting available modes."""
+    picam2.stop()
+    modes = picam2.sensor_modes
+    return max(modes, key=lambda m: m["size"][0] * m["size"][1])["size"]
+
+
+def _draw_grid(img: cv2.Mat, grid_size: int, color: tuple[int, int, int] = (0, 0, 255), thickness: int = 1) -> None:
+    """Draw an evenly spaced grid centered at the image midpoint.
+
+    The x=0 (vertical center) and y=0 (horizontal center) axes are drawn in
+    blue; all other grid lines are drawn in red.
+    """
+    h, w = img.shape[:2]
+    cx, cy = w // 2, h // 2
+    axis_color = (0, 255, 0)  # blue (BGR)
+
+    # Vertical lines, stepping out from center
+    x = cx % grid_size  # leftmost line position
+    while x < w:
+        c = axis_color if x == cx else color
+        cv2.line(img, (x, 0), (x, h), c, thickness)
+        x += grid_size
+
+    # Horizontal lines, stepping out from center
+    y = cy % grid_size  # topmost line position
+    while y < h:
+        c = axis_color if y == cy else color
+        cv2.line(img, (0, y), (w, y), c, thickness)
+        y += grid_size
+
+
+def _capture_loop(picam2, jpeg_quality: int, target_period_s: float, grid_size: int) -> None:
     global _latest_jpeg
     while not _stop_capture.is_set():
         t0 = time.monotonic()
         try:
             gray = picam.get_gray_frame(picam2)
+            gray = cv2.flip(gray, 0)
             bgr = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+            if grid_size > 0:
+                _draw_grid(bgr, grid_size)
             ok, buf = cv2.imencode(".jpg", bgr, [int(cv2.IMWRITE_JPEG_QUALITY), jpeg_quality])
             if ok:
                 data = buf.tobytes()
@@ -99,23 +135,48 @@ def main() -> None:
         "--width",
         type=int,
         default=None,
-        help=f"Frame width; height 480. Default {picam.DEFAULT_FRAME_SIZE[0]}.",
+        help=f"Frame width. Default {picam.DEFAULT_FRAME_SIZE[0]}. Ignored if --max-res is set.",
     )
-    parser.add_argument("--fps", type=float, default=24.0, help="Max capture rate (default 24).")
+    parser.add_argument(
+        "--max-res",
+        action="store_true",
+        help="Use the sensor's maximum native resolution. Overrides --width.",
+    )
+    parser.add_argument("--fps", type=float, default=24.0, help="Max capture rate (default 24). Consider 5-10 with --max-res.")
     parser.add_argument("--quality", type=int, default=75, help="JPEG quality 1-95 (default 75).")
+    parser.add_argument("--grid", type=int, default=100, metavar="PX", help="Grid square size in pixels (default 100). Set to 0 to disable.")
     args = parser.parse_args()
 
-    frame_size = picam.normalize_resolution(args.width) if args.width is not None else picam.DEFAULT_FRAME_SIZE
+    if args.max_res:
+        # Init with default size just long enough to query sensor modes, then re-init at full res.
+        print("Querying sensor for maximum resolution…")
+        _tmp = picam.init_camera(picam.DEFAULT_FRAME_SIZE)
+        frame_size = get_max_resolution(_tmp)
+        picam.close_camera(_tmp)
+        print(f"Sensor max resolution: {frame_size[0]}x{frame_size[1]}")
+    else:
+        # Derive height from sensor aspect ratio so we don't get a squished widescreen frame.
+        # This applies both when --width is given and when falling back to the default width.
+        print("Querying sensor aspect ratio…")
+        _tmp = picam.init_camera(picam.DEFAULT_FRAME_SIZE)
+        max_w, max_h = get_max_resolution(_tmp)
+        picam.close_camera(_tmp)
+        aspect = max_h / max_w
+        width = args.width if args.width is not None else picam.DEFAULT_FRAME_SIZE[0]
+        frame_size = (width, int(round(width * aspect)))
+        print(f"Sensor aspect ratio {max_w}x{max_h} → frame size {frame_size[0]}x{frame_size[1]}")
+
     target_period = 1.0 / max(args.fps, 1.0)
 
     picam2 = picam.init_camera(frame_size)
     picam2.set_controls({
-    "AeEnable": False,
-    "ExposureTime": 200,  # microseconds — adjust this
+        "AeEnable": False,
+        "ExposureTime": 200,  # microseconds — adjust this
     })
+
     cap_thread = threading.Thread(
         target=_capture_loop,
-        args=(picam2, int(args.quality), target_period),
+        args=(picam2, int(args.quality), target_period, args.grid),
         daemon=True,
     )
     cap_thread.start()
