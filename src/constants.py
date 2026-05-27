@@ -40,9 +40,9 @@ DAC_CH3 = 3
 SPI_MODE = 0b01
 SPI_MAX_SPEED = 1_000_000
 
-CURRENT_SCREEN_DISTANCE = 360 # mm
+CURRENT_SCREEN_DISTANCE = 360 # mm # for charuco calibration, irrelevant if not using charuco. 
 
-# centroiding threshold configuration
+# centroiding threshold configuration: this is for the mapping algorithm. 
 LASER_CENTROID_THRESHOLD_ENABLED = True
 LASER_CENTROID_INTENSITY_THRESHOLD = 0
 

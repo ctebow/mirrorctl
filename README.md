@@ -1,141 +1,175 @@
 # Mirrorctl Raspberry Pi Scripts (`rasppi_src`)
 
-Script-first control and calibration tools for a Mirrorcle-style 2-axis MEMS mirror on Raspberry Pi.
+This repository is the Raspberry Pi control layer for FSM voltage actuation, camera-based centroiding, and voltage-to-position mapping workflows.
 
-This repo centers on:
-- safe FSM voltage control over SPI/GPIO
-- camera-assisted voltage-to-position mapping
-- ChArUco-based camera calibration for undistortion and optional board-plane millimeter coordinates
+## Safety-Critical First Notes
 
----
+- `VDIFF` limits are hardware-critical; stay within `src/constants.py` (`VDIFF_MIN_VOLTS` to `VDIFF_MAX_VOLTS`).
+- `VBIAS` and slew settings in `src/constants.py` affect commanded voltages and motion behavior across scripts/services.
 
-## Safety First
+## Repository Table Of Contents
 
-- Differential voltage (`VDIFF`) limits are hardware-critical. Keep values within limits defined in `src/constants.py`.
-- `FSM.close()` slews back toward neutral before disabling the driver; always call it in `finally`.
-- Software checks are guardrails, not a substitute for hardware review and wiring validation.
+Each Top-Level folder contains a `README` with more information about the purpose of that folder as well as how to use the files within. Each `*_main.py` script also has an additional markdown information file that accompanies it. Use this file as the top-level resource to guide you to other files. 
 
----
+### Top-Level Folders
 
-## Quick Start
+- `docs/` - documentation for how to use this repository READ THIS
+- `src/` - low-level primitives (FSM object/control, voltage helpers, camera capture, centroiding, constants).
+- `services/` - orchestration layer (`FsmService`, `MappingService`, `CalibrationService`) used by interactive flows.
+- `config/` - camera calibration scripts and docs (`calibrate_camera_interactive.py`, `calibrate_picam.py`, `get_calib_photos.py`, calibration markdown references).
+- `tools/` - diagnostics and comparison scripts (centroid/camera/calibration checks).
+- `tests/` - pytest coverage for helper and control logic.
+- `runs/` - generated CSV outputs and run artifacts (mapping/PID outputs).
+- `old/` - legacy scripts/data retained for reference.
 
-From the `rasppi_src` root:
+### Important Top-Level Files
 
-1. Calibrate camera (recommended one-command flow):
-   - `python3 -u config/calibrate_camera_interactive.py`
-2. Run voltage mapping:
-   - `python3 voltage_mapping_main.py --resolution 640 --mode man`
-3. Manual voltage control (no camera):
-   - `python3 go_to_voltage_main.py`
+- `go_to_voltage_main.py` - manual FSM voltage command REPL.
+- `pid_mock_main.py` - click-based PID mock runner using centroid error feedback.
+- `voltage_mapping_interactive_main.py` - primary interactive or params-driven mapping/verification entrypoint.
+- `voltage_mapping_params.json` - parameter template consumed by `voltage_mapping_interactive_main.py` when you choose params-file mode.
+- `lab-notebook.md` - experiment history, open issues, and practical observations.
 
-For full camera calibration details and troubleshooting, see `config/CALIBRATION.md`.
+### If You Need X, Go To Y
 
----
+- "Set or test raw FSM voltages manually" -> `go_to_voltage_main.py` (`docs/go_to_voltage.md`)
+- "Run PID loop experiments and log CSV" -> `pid_mock_main.py` (`docs/pid_mock_main.md`)
+- "Run mapping sweeps/grids/verify workflows" -> `voltage_mapping_interactive_main.py` (`docs/mapping.md`)
+- "Change camera/FSM default behavior globally" -> `src/constants.py` (`docs/constants.md`)
+- "Regenerate camera calibration artifacts (`camera_params.npz`)" -> scripts in `config/`
+- Troubleshooting -> (`docs/troubleshooting.md`)
 
-## Repository Layout
+## Top-Level `*main.py` Entry Points
 
-- `src/` — core hardware and vision primitives
-  - `fsm_obj.py`: `FSM` class for connect/set/close operations
-  - `setup_fsm.py`: ordered hardware bring-up / shutdown sequence
-  - `voltage_helpers.py`: DAC conversion and slew helpers
-  - `picam.py`: Picamera2 capture helpers
-  - `centroiding.py`: laser centroid + calibration model loader
-  - `constants.py`: pin mappings, voltage/slew limits, SPI settings
-- `services/` — application-layer orchestration
-  - `FsmService`, `MappingService`, `CalibrationService`
-- `config/` — camera workflow scripts/docs
-  - `calibrate_camera_interactive.py` (preview + capture + lens + homography)
-  - `get_calib_photos.py` (capture-only)
-  - `calibrate_picam.py` (lens/homography CLI utility, supports update-only homography)
-  - `preview_stream.py` (headless browser stream)
-  - `CALIBRATION.md` (canonical calibration workflow)
-- `tools/` — diagnostics utilities (centroid and distance helpers)
-- `go_to_voltage_main.py`, `voltage_mapping_main.py` — main user-facing scripts
+### `go_to_voltage_main.py`
 
----
+Use case:
 
-## Core API (`src/FSM`)
+- Quick manual FSM control loop where you type `vdiffx vdiffy` pairs.
+- Best for sanity checks, direct motion probing, and safe manual voltage exploration.
 
-Import:
+How to run:
 
-```python
-from src import FSM
-from src.exceptions import UnsafeVoltageRequest
+```bash
+python3 -u go_to_voltage_main.py
 ```
 
-### `begin()` and connection model
+What happens:
 
-- `FSM.begin(confirm=None) -> FsmConnectResult`
-  - Returns `ok`, `simulated`, and `message`
-  - On Linux, attempts real hardware init through `setup_fsm`
-  - On non-Linux, returns simulated mode
-- `FSM.begin_interactive() -> FsmConnectResult`
-  - Uses interactive confirmation path
+- Prompts interactively for voltage pairs.
+- Applies safety checks via `FSM.set_vdiff(...)`; out-of-range requests are rejected.
 
-### Set voltages safely
+### `pid_mock_main.py`
 
-- `FSM.set_vdiff(vx, vy) -> tuple[float, float]`
-- Raises `UnsafeVoltageRequest` if requested voltage is out of allowed range
+Use case:
 
-### Shutdown
+- Closed-loop PID experiments driven by camera centroid error.
+- Optional CSV logging for offline tuning analysis.
 
-- `FSM.close()` disconnects and returns to safe neutral state path
+How to run (examples):
 
----
+```bash
+python3 -u pid_mock_main.py --refresh-ms 200 --kp 0.01 --ki 0.0 --kd 0.0 --mode auto
+python3 -u pid_mock_main.py --refresh-ms 500 --kp 0.02 --ki 0.001 --kd 0.0 --mode step --o runs/pid_tests/
+```
 
-## Script Entry Points
+What happens:
 
-- `go_to_voltage_main.py`
-  - interactive voltage REPL (`vdiffx vdiffy`) with range enforcement
-- `voltage_mapping_main.py`
-  - camera-based mapping (`man`, `auto`, `test-cam`)
-  - optional calibration file via `--calibration`
-  - raw mode with `--no-calib`
-- `config/calibrate_camera_interactive.py`
-  - starts preview stream, captures with `s/save`, calibrates lens + homography, writes `config/camera_params.npz`
-  - legacy CharUco mode forced on in this workflow
-- `config/calibrate_picam.py`
-  - standalone calibration utility, including `--update-homography`
+- Starts FSM and camera server, computes PID deltas, and commands voltage updates each loop.
+- In `step` mode, advances on Enter; in `auto`, loops on timer.
 
----
+### `voltage_mapping_interactive_main.py`
 
-## Camera Calibration + Mapping Data Flow
+Use case:
 
-1. Capture ChArUco images.
-2. Solve lens intrinsics (`mtx`, `dist`) and reprojection quality (`rms`).
-3. Optionally compute homography (`H`) to board plane.
-4. Save `config/camera_params.npz`.
-5. `voltage_mapping_main.py` loads this file by default and outputs:
-   - undistorted pixels (`cx_ud_px`, `cy_ud_px`) when only `mtx`/`dist` are present
-   - board-plane mm (`x_mm`, `y_mm`) when `H` is present
+- Primary measurement entrypoint for preview/manual/sweep/grid/verify workflows.
+- Supports two config styles: interactive prompts or JSON params file.
 
----
+How to run:
 
-## Error Model
+```bash
+python3 -u voltage_mapping_interactive_main.py
+```
 
-Key domain exceptions in `src/exceptions.py`:
+Typical interaction:
 
-- `UnsafeVoltageRequest` — requested voltage outside configured range
-- `HardwareUnavailable` — camera/SPI/GPIO setup failure
-- `CalibrationError` — missing/invalid calibration artifacts
-- `InitializationAborted` — setup refused by confirmation/policy
+- First prompt asks whether to use `voltage_mapping_params.json`.
+- If `yes`, it loads config from that JSON.
+- If `no`, it asks interactively for mode and relevant fields.
 
-Scripts catch and report these in user-facing flows.
+Notes:
 
----
+- Modes include `preview-cam`, `man`, `sweep`, `sweep-raw`, `random-square-walk`, `grid`, `grid-raw`, `verify`, `verify-sweep`, and `verify-grid`.
+- Mapping modes load calibration by default from `config/camera_params.npz` unless `no_calib` is enabled.
 
-## Configuration Source Of Truth
+## Calibration Settings: Source Of Truth
 
-`src/constants.py` defines:
-- voltage and slew limits
-- SPI settings
-- enable pin and PWM/FCLK settings
+### Primary Control File: `src/constants.py`
 
-Any hardware setup changes should be made there and validated against your schematic.
+This is the central place for default camera and FSM behavior used across runtime code.
 
----
+FSM and voltage safety controls:
 
-## Related Docs
+- `VBIAS`
+- `VDIFF_MIN_VOLTS`, `VDIFF_MAX_VOLTS`
+- `SLEW_RATE_MS`, `SLEW_AMOUNT_V`
+- DAC/SPI/pin constants used during hardware bring-up and command conversion
 
-- `config/CALIBRATION.md` — full calibration workflow, homography details, troubleshooting
-- `config.md` — concise calibration quick reference
+Camera defaults and controls:
+
+- `CAMERA_DEFAULT_WIDTH`, `CAMERA_DEFAULT_HEIGHT`
+- `CAMERA_FRAME_RATE`, `CAMERA_MAIN_FORMAT`
+- `CAMERA_AUTO_EXPOSURE_ENABLED`, `CAMERA_EXPOSURE_TIME_US`, `CAMERA_ANALOGUE_GAIN`
+- `CAMERA_AUTO_WHITE_BALANCE_ENABLED`, `CAMERA_COLOUR_GAINS`
+
+Centroiding controls:
+
+- `LASER_CENTROID_THRESHOLD_ENABLED`
+- `LASER_CENTROID_INTENSITY_THRESHOLD`
+
+How these propagate:
+
+- Camera constants are applied in `src/picam.py` when camera configs are created.
+- Voltage/safety constants are enforced through FSM setup/helpers (`src/setup_fsm.py`, `src/voltage_helpers.py`, `src/fsm_obj.py`, service wrappers).
+- Mapping and PID scripts consume this behavior via `FSM`, `picam`, and service calls.
+
+## Other Ways Calibration/Settings Change
+
+In addition to `src/constants.py`, runtime behavior can be changed through:
+
+1. `voltage_mapping_params.json`
+
+- Used by `voltage_mapping_interactive_main.py` when params-file mode is selected.
+- Controls mode selection, sweep/grid bounds, output location, ROI/resolution, calibration path, and optional Gaussian centroiding inputs.
+
+1. Interactive prompts in `voltage_mapping_interactive_main.py`
+
+- Same effective settings as JSON, but entered during script startup.
+
+1. Calibration artifacts (`config/camera_params.npz`)
+
+- Contains camera calibration data (`mtx`, `dist`, optional `H`).
+- Loaded by mapping workflows unless `no_calib` is set.
+- Updated/regenerated by scripts under `config/`.
+
+1. Calibration scripts in `config/`
+
+- `calibrate_camera_interactive.py`, `calibrate_picam.py`, and `get_calib_photos.py` can change calibration outputs and therefore mapping interpretation.
+
+Important clarification:
+
+- This repository does not currently use environment-variable overrides for calibration settings; control is through constants, JSON, prompts, and calibration artifacts/scripts.
+
+## Calibration Workflow References (Details)
+
+- `config/CALIBRATION.md` - complete camera calibration and mapping workflow details.
+- `config/config.md` - concise calibration quick reference.
+- `lab-notebook.md` - practical experiment log, residual observations, and next-step ideas.
+
+## Recommended Handoff Workflow
+
+1. Review `src/constants.py` and confirm safe voltage/camera defaults for the target hardware setup.
+2. Confirm/refresh camera calibration artifacts (`config/camera_params.npz`) using scripts in `config/` if setup has changed.
+3. Use `voltage_mapping_interactive_main.py` as the primary measurement workflow.
+4. Use `go_to_voltage_main.py` for direct manual checks and `pid_mock_main.py` for control experiments.
+
